@@ -71,7 +71,7 @@ void *nvn_real[NVN_NFUNC];               // DM_NVN_PROF：计时包装调用的�
 _Atomic uint64_t nvn_prof_ticks[NVN_NFUNC]; // DM_NVN_PROF：各函数累计耗时（cntvct 计数） | DM_NVN_PROF: cumulative time of each function (cntvct counts)
 static uint8_t g_unimpl_seen[NVN_NFUNC];
 
-#if defined(DM_GAME_ETERNAL) || defined(DM_GAME_XC2) || defined(DM_GAME_D3)
+#if defined(DM_GAME_ETERNAL) || defined(DM_GAME_XC2) || defined(DM_GAME_D3) || defined(DM_GAME_BL2)
 void nvn_trace_entry(void);
 #define NVN_TRACE_N 64
 static struct { uint32_t i, tid; uint64_t a, b, c, ra; } g_trace[NVN_TRACE_N]; static _Atomic uint32_t g_trace_at;
