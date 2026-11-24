@@ -7,6 +7,22 @@ This tree is the **DM NVN HLE port framework** (originally the Divinity: Origina
 > 请使用你自己卡带 dump 出来的游戏文件。把商业游戏资源提交到公开仓库会违反 GitHub 的版权政策，
 > 也可能导致仓库被封禁；体积上也放不下（BL2 资源为数十 GB 级）。
 
+## 0. Legal / game data
+
+This repository ships **code and tools only**: no game data, no decryption keys, no
+firmware, and no APKs or shader packs built from them.
+
+- Dump from hardware you own. Do **not** share the dump, the generated `*.xgs` shaders, or
+  APKs/data packs built from them.
+- Whether decrypting and converting your own copy for personal use is permitted depends on
+  where you live; check your local law.
+- This project does not host or link to ROMs, keys, or warez.
+
+Same position as other emulator/port projects: Ryujinx — “It does not include Nintendo
+firmware, keys, or commercial games. You must obtain those files by dumping hardware you
+own.”; nx2android — “Dump both from your own Switch, and don't share them or the APKs and
+data packs built from them.”
+
 ---
 
 ## 1. What you need
