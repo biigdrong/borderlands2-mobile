@@ -84,32 +84,72 @@ MAP = os.path.join(HERE, '../nvn/shader_map.tsv')
 FACTS = dmsh_facts.load()
 if not FACTS: sys.exit('【红】没有作答表 nvn/shader_facts.tsv')
 
+# REC_DIR：每个着色器一条记录（<key>.rec，shader_split 的作业目录），没有原包时用它重译单个着色器。
+# REC_DIR: one record per shader (<key>.rec, the shader_split job directory), to re-translate single shaders without the original package.
+REC_DIR = os.environ.get('REC_DIR')
+if REC_DIR:
+    rec_files = {f[:-4]: os.path.join(REC_DIR, f) for f in os.listdir(REC_DIR) if f.endswith('.rec')}
+    loc = {k: ('', 0) for k in rec_files}
+    stage_of = {}
+    jobs_tsv = os.path.join(REC_DIR, '..', 'jobs.tsv')   # key <TAB> stage <TAB> … | 作业目录旁边的 jobs.tsv
+    if os.path.exists(jobs_tsv):
+        for ln in open(jobs_tsv, encoding='utf-8'):
+            c = ln.rstrip('\n').split('\t')
+            if len(c) > 1 and c[1] in ('vs', 'ps', 'gs', 'cs', 'hs', 'ds'): stage_of[c[0]] = c[1]
+
 # ---- 取着色器、组作业（与 dmsh_build.py 同） ----
 # ---- Getting shaders and building jobs (as dmsh_build.py) ----
 def records(d):
     r = [m.start() for m in re.finditer(b'BTCDBTCD', d)]
     return [d[x:(r[k + 1] if k + 1 < len(r) else len(d))] for k, x in enumerate(r)]
 
-loc, stage_of = {}, {}
-for ln in open(MAP):
-    c = ln.rstrip('\n').split('\t')
-    if len(c) > 4 and c[0].endswith('.bin'): loc.setdefault(c[3], (c[0], int(c[1])))
-    if len(c) > 4 and c[0].startswith('main.rodata@'):
-        loc.setdefault(c[3], (c[0], int(c[0].split('@')[1], 16))); stage_of[c[3]] = {'顶点': 'vs', '像素': 'ps'}[c[2]]
+loc, stage_of = ({}, {}) if not REC_DIR else (loc, stage_of)
+if not REC_DIR:
+    for ln in open(MAP):
+        c = ln.rstrip('\n').split('\t')
+        if len(c) > 4 and c[0].endswith('.bin'): loc.setdefault(c[3], (c[0], int(c[1])))
+        if len(c) > 4 and c[0].startswith('main.rodata@'):
+            loc.setdefault(c[3], (c[0], int(c[0].split('@')[1], 16))); stage_of[c[3]] = {'顶点': 'vs', '像素': 'ps'}[c[2]]
 
 def main_rec(mi, o):
     g = mi.rfind(bytes.fromhex('78563412'), o - 0x1000, o)
     if g < 0 or mi[o:o + 4] != bytes.fromhex('34127698'): sys.exit(f'【红】main 映像 @{o:#x} 不是内嵌着色器控制段（MAIN={MAIN}）')
     return bytes(0x38) + mi[g:o + 0x880]
 
+def vertex_ab(key, code, ctl):
+    """VertexA + VertexB merged as one program (dmsh_build.py's vertex_ab; BL2 的 B 段不在 ctl+0x700+0x30，位置以控制段 +0x748 为准)。
+    A 段只写位置，B 段写其余 varying：只译 A 会让像素着色器读的 varying 全没有输出，Adreno 链接直接失败（BL2 的粒子/光柱全不显示）。
+    VertexA + VertexB merged as one program (dmsh_build.py's vertex_ab; BL2's part B sits where the control's +0x748 says, not at ctl+0x700+0x30).
+    Part A writes the position only and part B the other varyings: translating A alone leaves every varying the pixel shader reads unwritten, and
+    Adreno's linker rejects the pipeline (BL2: no particles, no loot beams)."""
+    if len(code) < 0x80 or len(ctl) < 0x760 or code[:4] != bytes.fromhex('78563412'): return None
+    w0 = struct.unpack_from('<I', code, 0x30)[0]
+    if w0 & 0x1f != 1 or (w0 >> 10) & 0xf != 0: return None
+    a_sph, a_len, _, b_sph, b_len, _ = struct.unpack_from('<6I', ctl, 0x748)
+    if not any((a_sph, a_len, b_sph, b_len)): return None
+    if a_sph != 0x30 or not (0x80 <= b_sph <= len(code) - 0x50) or b_sph + b_len > len(code) or (a_len - 0x50) % 32 or (b_len - 0x50) % 32: return None
+    bw0 = struct.unpack_from('<I', code, b_sph)[0]
+    if bw0 & 0x1f != 1 or (bw0 >> 10) & 0xf != 1: return None
+    sa, sb = list(struct.unpack_from('<20I', code, a_sph)), list(struct.unpack_from('<20I', code, b_sph))
+    sph = [sb[0] | sa[0] & ~(0xf << 10)] + [max(sa[i] & 0xffffff, sb[i] & 0xffffff) | sb[i] & ~0xffffff for i in (1, 2, 3)] + [sb[4]] + [sa[i] | sb[i] for i in range(5, 20)]
+    av = bytearray(code[a_sph + 0x50:a_sph + a_len]); b = code[b_sph + 0x50:b_sph + b_len]
+    for o in range(0, len(av), 8):
+        if o % 32 == 0: continue
+        ins = struct.unpack_from('<Q', av, o)[0]
+        if ins >> 52 == 0xe30 and ins & 0x1f == 0xf: struct.pack_into('<Q', av, o, 0xe24 << 52 | ((len(av) - (o + 8)) & 0xffffff) << 20 | ins & 0xfffff)
+    return code[:0x30] + struct.pack('<20I', *sph) + bytes(av) + b
+
 def job_for(key, name, rec, w):
     ci = rec.find(bytes.fromhex('34127698')); code = rec[0x38:ci]; stage = stage_of.get(key, name[:2])
     c1o, c1t = struct.unpack_from('<2I', rec, ci + 0x700)
     c1 = rec[0x38 + c1o:0x38 + c1t]
+    if stage == 'vs' and not os.environ.get('DMSH_VK_NO_AB'):
+        ab = vertex_ab(key, code, rec[ci:])
+        if ab: code = ab   # 只并代码；c1 仍是控制段给的区间（BL2 的常量就在这一段开头） | merge the code only; c1 stays the control's range (BL2's constants start there)
     if stage != 'cs': code = code[0x30:]
     cp = os.path.join(w, key + '.bin'); open(cp, 'wb').write(code)
     j = {'key': key, 'stage': stage, 'code': cp, 'tex': {}, 'img': {}, 'attr': {}, 'fout': {}, 'c1': c1.hex(),
-         'debug': os.environ.get('XLATE_DEBUG', '1') != '0', 'reduced': os.environ.get('XLATE_REDUCED', '1') == '1'}
+         'debug': os.environ.get('XLATE_DEBUG', '0') != '0', 'reduced': os.environ.get('XLATE_REDUCED', '1') == '1'}
     if key in FACTS: j.update(FACTS[key])
     return j, c1
 
@@ -128,6 +168,81 @@ def rewrite(spv, stage):
     for i, op, a in insts(w):
         if op == 71 and a[1] == 33: w[i + 3] = a[2] * 6 + STAGE_NO[stage]                       # OpDecorate … Binding
     return struct.pack('<%dI' % len(w), *w)
+
+# ---- spirv-opt 没有 --trim-capabilities 时的替代（同 dmsh_vk_doom.py 的 py_trim） ----
+# ---- fallback when the spirv-opt in use lacks --trim-capabilities (dmsh_vk_doom.py's py_trim) ----
+BALLOT_BUILTINS = {4416, 4417, 4418, 4419, 4420}   # Subgroup{Eq,Ge,Gt,Le,Lt}Mask
+GROUP_BUILTINS = {36, 37, 38, 39, 40, 41}           # SubgroupSize … SubgroupLocalInvocationId
+DRAW_BUILTINS = {4424, 4425, 4426}                  # BaseVertex, BaseInstance, DrawIndex
+EXT_CAPS = {'SPV_KHR_shader_draw_parameters': {4427}, 'SPV_EXT_fragment_shader_interlock': {5363, 5372, 5378}}
+
+
+def py_trim(spv):
+    """与 spirv-opt --trim-capabilities 同：模块里用不到的能力（Float64/Int64/Int16/Float16、GroupNonUniform*、
+    DrawParameters、fragment interlock）连同只剩它们声明的扩展一起去掉。
+    Same as spirv-opt --trim-capabilities: drop the capabilities nothing in the module needs (Float64 / Int64 / Int16 / Float16,
+    GroupNonUniform*, DrawParameters, fragment interlock) and the extensions whose only capabilities went away."""
+    w = list(struct.unpack('<%dI' % (len(spv) // 4), spv))
+    caps, ops, builtins, fw, iw, modes = set(), set(), set(), set(), set(), set()
+    for i, op, a in insts(w):
+        ops.add(op)
+        if op == 17: caps.add(a[0])
+        elif op == 22: fw.add(a[1])
+        elif op == 21: iw.add(a[1])
+        elif op == 71 and len(a) >= 3 and a[1] == 11: builtins.add(a[2])
+        elif op == 72 and len(a) >= 4 and a[2] == 11: builtins.add(a[3])
+        elif op in (16, 331): modes.add(a[1])
+    need = {10: 64 in fw, 9: 16 in fw, 11: 64 in iw, 22: 16 in iw,
+            61: bool(ops & set(range(333, 367))) or bool(builtins & (GROUP_BUILTINS | BALLOT_BUILTINS)),
+            62: bool(ops & {334, 335, 336}), 63: bool(ops & set(range(349, 365))),
+            64: bool(ops & set(range(337, 345))) or bool(builtins & BALLOT_BUILTINS),
+            65: bool(ops & {345, 346}), 66: bool(ops & {347, 348}), 68: bool(ops & {365, 366}), 4427: bool(builtins & DRAW_BUILTINS),
+            **{c: bool(ops & {5364, 5365}) or bool(modes & set(range(5366, 5372))) for c in (5363, 5372, 5378)}}
+    drop = {c for c, n in need.items() if c in caps and not n}
+    out, i = w[:5], 5
+    for j, op, a in insts(w):
+        n = w[j] >> 16
+        if op == 17 and a[0] in drop: continue
+        if op == 10:
+            name = bytes(struct.pack('<%dI' % len(a), *a)).split(b'\0')[0].decode()
+            if name in EXT_CAPS and EXT_CAPS[name] <= drop | (EXT_CAPS[name] - caps): continue
+        out.extend(w[j:j + n])
+    return struct.pack('<%dI' % len(out), *out), sorted(drop)
+
+
+def opt_has_trim():
+    if not OPT: return False
+    r = subprocess.run([OPT, '--help'], capture_output=True, text=True, errors='replace')
+    return '--trim-capabilities' in r.stdout + r.stderr
+
+
+def fix_z_remap(spv):
+    """BL2 的顶点程序自己写 [0,w] 的 clip z（同一条链里普通顶点着色器没有深度重映射），但翻译器给 VertexA/B 程序额外加了
+    z' = 0.5*z + 0.5*w 的 GL 深度重映射：粒子/光球落地后深度被推到地板之后，整批不可见。
+    这里把那一条 Fma 改成 Fma(z, 1.0, 0.0)（即保留 z），返回改写的条数。
+    BL2's vertex programs already write [0,w] clip z (the ordinary vertex shaders of the same chain have no depth remap), but the translator
+    adds the GL remap z' = 0.5*z + 0.5*w to VertexA/B programs: particles / loot orbs land behind the floor and vanish. Rewrite that one Fma
+    to Fma(z, 1.0, 0.0) (z kept); returns the number of rewritten sites."""
+    w = list(struct.unpack('<%dI' % (len(spv) // 4), spv[:len(spv) // 4 * 4]))
+    one = zero = None; half = None; mul_half = set(); fma = []
+    i = 5
+    while i < len(w):
+        n, op = w[i] >> 16, w[i] & 0xffff
+        if not n: break
+        if op == 43 and n >= 4:                                   # OpConstant
+            if w[i + 3] == 0x3f800000: one = w[i + 2]
+            elif w[i + 3] == 0: zero = w[i + 2]
+            elif w[i + 3] == 0x3f000000: half = w[i + 2]
+        elif op == 133 and n >= 5 and half is not None and w[i + 4] == half: mul_half.add(w[i + 2])   # OpFMul …, 0.5
+        elif op == 12 and n >= 8: fma.append(i)                   # OpExtInst: 类型, 结果, 集合, 指令, 操作数…
+        i += n
+    if not one or not zero or not half: return spv, 0
+    k = 0
+    for i in fma:
+        if w[i + 4] != 50: continue                               # GLSL.std.450 Fma
+        if w[i + 6] != half: continue                             # Fma(z, 0.5, w*0.5): the depth remap (z is the multiplier)
+        w[i + 6] = one; w[i + 7] = zero; ++k
+    return struct.pack('<%dI' % len(w), *w), k
 
 def add_format_caps(spv):
     """Ryujinx 对「未定格式」（Format = Unknown）的存储图像读写不声明 StorageImageRead/WriteWithoutFormat，spirv-val 不放行。
@@ -245,15 +360,20 @@ NJ = int(os.environ.get('J', '8'))
 os.makedirs(out, exist_ok=True)
 work = tempfile.mkdtemp(prefix='dmsh_vk_', dir=os.environ.get('WORK'))
 bundle = os.path.join(work, 'bundle'); os.makedirs(bundle)
+OPT_TRIM = opt_has_trim()   # spirv-opt 带 --trim-capabilities 就用它，否则 py_trim | spirv-opt's --trim-capabilities when it has one, else py_trim
 packs, jobs, c1s = {}, {}, {}
 for key in keys:
-    name, k = loc[key]
+    if REC_DIR:
+        rec = open(rec_files[key], 'rb').read(); name = stage_of.get(key, '')
+        if rec[:8] == bytes(8): rec = b'BTCDBTCD' + rec[8:]   # 作业记录把包标记清零了 | the job record has the package marker zeroed
+    else:
+        name, k = loc[key]
     if name.startswith('main.rodata@'):
         if 'main' not in packs:
             sys.path.insert(0, os.path.join(HERE, '../../verify')); import nsoimg
             packs['main'] = nsoimg.load(MAIN)
         rec = main_rec(packs['main'], k)
-    else:
+    elif not REC_DIR:
         if name not in packs: packs[name] = records(open(os.path.join(dm_dir, name), 'rb').read())
         rec = packs[name][k]
     jobs[key], c1s[key] = job_for(key, name, rec, work)
@@ -272,10 +392,15 @@ def one(key):
     if key in xerr or not os.path.exists(os.path.join(work, key + '.spv')): return key, '翻译失败', xerr.get(key, '无 spv')
     stage = jobs[key]['stage']
     spv = rewrite(open(os.path.join(work, key + '.spv'), 'rb').read(), stage)
+    if stage == 'vs' and os.environ.get('DM_VK_FIX_Z') == '1':
+        spv, zk = fix_z_remap(spv)
+        if zk: print(f'{key}: depth remap removed ({zk} site(s))', flush=True)
     f1, f2 = os.path.join(work, key + '.r.spv'), os.path.join(work, key + '.t.spv')
     open(f1, 'wb').write(spv)
-    r = subprocess.run([OPT, '--trim-capabilities', f1, '-o', f2], capture_output=True, text=True)
-    if r.returncode: return key, 'spirv-opt 失败', r.stderr.strip()[:160]
+    r = subprocess.run([OPT, '--trim-capabilities', f1, '-o', f2], capture_output=True, text=True) if OPT_TRIM else None
+    if r is not None and r.returncode: return key, 'spirv-opt 失败', r.stderr.strip()[:160]
+    if r is None:
+        data, _ = py_trim(open(f1, 'rb').read()); open(f2, 'wb').write(data)   # spirv-opt 没有 --trim-capabilities（NDK r29）
     if INLINE_CS and stage == 'cs' and helper_has_subgroup(open(f2, 'rb').read()):
         f3 = os.path.join(work, key + '.i.spv')
         r = subprocess.run([OPT, '--merge-return', '--inline-entry-points-exhaustive', '--eliminate-dead-functions', f2, '-o', f3], capture_output=True, text=True)

@@ -16,7 +16,7 @@ def startupStrings = layout.buildDirectory.dir('generated/androidStrings')
 def generateStartupStrings = tasks.register('generateStartupStrings', Exec) {
     inputs.files('../tools/gen_strings.py', '../../i18n/ui_text.tsv', '../../ios/tools/dm_i18n.py')
     outputs.dir(startupStrings)
-    def appName = project.findProperty('dmGame') == 'doom' ? ['--app-name', 'DOOM Mobile'] : project.findProperty('dmGame') == 'eternal' ? ['--app-name', 'DOOM Eternal Mobile'] : project.findProperty('dmGame') == 'xc2' ? ['--app-name', 'Xenoblade 2 Mobile'] : project.findProperty('dmGame') == 'd3' ? ['--app-name', 'Diablo III Mobile'] : project.findProperty('dmGame') == 'tl2' ? ['--app-name', 'Torchlight II Mobile'] : project.findProperty('dmGame') == 'dos2' ? ['--app-name', 'Divinity Original Sin 2 Mobile'] : []
+    def appName = project.findProperty('dmGame') == 'doom' ? ['--app-name', 'DOOM Mobile'] : project.findProperty('dmGame') == 'eternal' ? ['--app-name', 'DOOM Eternal Mobile'] : project.findProperty('dmGame') == 'xc2' ? ['--app-name', 'Xenoblade 2 Mobile'] : project.findProperty('dmGame') == 'd3' ? ['--app-name', 'Diablo III Mobile'] : project.findProperty('dmGame') == 'tl2' ? ['--app-name', 'Torchlight II Mobile'] : project.findProperty('dmGame') == 'dos2' ? ['--app-name', 'Divinity Original Sin 2 Mobile'] : project.findProperty('dmGame') == 'bl2' ? ['--app-name', 'Borderlands 2 Mobile'] : []
     inputs.property('dmGame', project.findProperty('dmGame') ?: 'd2r')
     commandLine([project.findProperty('dmPython') ?: 'python3', '../tools/gen_strings.py', '--output', startupStrings.get().asFile] + appName)
 }
@@ -85,7 +85,10 @@ android {
         storeFile file(releaseKey); storeType 'pkcs12'
         storePassword System.getenv('DM_ANDROID_KEY_PASS'); keyAlias System.getenv('DM_ANDROID_KEY_ALIAS'); keyPassword System.getenv('DM_ANDROID_KEY_PASS')
     } }
-    buildTypes { release { minifyEnabled false; if (releaseKey) signingConfig signingConfigs.release } }
+    buildTypes {
+        debug { debuggable false }
+        release { minifyEnabled false; if (releaseKey) signingConfig signingConfigs.release }
+    }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
 tasks.named('preBuild').configure { dependsOn(generateStartupStrings, generateLauncherIcon) }

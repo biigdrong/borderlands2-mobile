@@ -62,6 +62,10 @@ static void game_seed_maybe(void) {
 
 static void guest_main(void) {
     guest_thread_init();
+#ifdef DM_GAME_BL2
+    // [BL2] hle_oodle.c: DM_OODLE_SERVE answers the offline tools on stdin/stdout from here (before the SDK runs).
+    { void dm_oodle_serve_maybe(int); dm_oodle_serve_maybe(0); }
+#endif
 #ifndef DM_GAME_DOOM   // [DOOM] diag.c (D2R diagnostics) is not built
     { void inflate_bench_maybe(void); inflate_bench_maybe(); }   // DM_INFLATE_BENCH 测试模式（诊断用，跑完退出） | DM_INFLATE_BENCH test mode (for diagnostics, exits when done)
     crash_sample_self();   // DM_SAMPLE 采样（诊断用） | DM_SAMPLE sampling (for diagnostics)
@@ -88,6 +92,12 @@ static void guest_main(void) {
     { void dm_guest_spawn_selftest(void); dm_guest_spawn_selftest(); }   // DM_GUEST_SPAWN_TEST 宿主客体线程自检（hle_guestthread.c） | DM_GUEST_SPAWN_TEST self-test of host-created guest threads (hle_guestthread.c)
 #ifndef DM_GAME_DOOM   // [DOOM] D2R touch layout prefixes
     { void dm_padmode_boot(void); dm_padmode_boot(); }   // 触屏覆盖层在：布局前缀改指触屏版（dm_padmode.c），要在游戏建面板之前 | Touch overlay present: repoint the layout prefixes to the touch version (dm_padmode.c); must happen before the game builds its panels
+#endif
+#ifdef DM_GAME_BL2
+    // [BL2] hle_oodle.c: replay the SDK-independent Oodle job (DM_OODLE_JOB) right before nnMain (it exits when done).
+    { void dm_oodle_serve_maybe(int); void dm_oodle_job_maybe(void); dm_oodle_serve_maybe(1); dm_oodle_job_maybe(); }
+    // [BL2] M0 probe (hle_bl2_probe.c; DM_BL2_PROBE=1 and probe.on in the data folder): reads memory only, off by default.
+    { void dm_bl2_probe_start(void); dm_bl2_probe_start(); }
 #endif
     LOG(">>> nnMain"); ((fn0)req("nnMain"))();
     LOG("nnMain returned");
@@ -172,6 +182,9 @@ static void host_preload(int argc, char **argv) {
 #endif
 #ifdef DM_TL2_MAIN   // [DOS2] Torchlight II main addresses: tl2 build only
     { void dm_tl2_wide_install(void); dm_tl2_wide_install(); }   // [TL2] DM_TL2_WIDE: the window / video settings at the screen's aspect before the guest runs (hle_tl2_wide.c)
+#endif
+#ifdef DM_GAME_BL2
+    { void dm_bl2_wide_install(void); dm_bl2_wide_install(); }   // [BL2] DM_BL2_WIDE: the NVN window at the screen's aspect before the guest runs (hle_bl2_wide.c)
 #endif
 #ifdef DM_GAME_DOS2
     { void dm_dos2_wide_install(void); dm_dos2_wide_install(); }   // [DOS2] DM_DOS2_WIDE: the renderer's display modes at the screen's shape before the guest runs (hle_dos2_wide.c)

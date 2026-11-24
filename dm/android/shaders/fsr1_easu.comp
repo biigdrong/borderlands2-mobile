@@ -1,0 +1,112 @@
+#version 450
+// [BL2] FSR 1 EASU at the present: the game's whole frame (1280x720) upscaled to the window with AMD FidelityFX Super Resolution 1.0
+// edge-adaptive spatial upsampling (FsrEasuF of ffx_fsr1.h, MIT licence, the GLSL form of the DOS2 port's PPFXAA_fsr.frag).
+// A compute pass instead of a fragment one (no render pass, like rcas.comp next to it): one thread per output pixel; the source is the
+// game's presented image, the destination is an RGBA8 storage image at the window's size that the presenter then blits 1:1.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0) uniform sampler2D tSrc;
+layout(set = 0, binding = 1, rgba8) uniform image2D oDst;
+layout(push_constant) uniform P { vec2 src; vec2 dst; } pc;   // source and destination sizes in pixels
+
+float rcpLo(float a) { return uintBitsToFloat(0x7ef07ebbu - floatBitsToUint(a)); }
+float rsqLo(float a) { return uintBitsToFloat(0x5f347d74u - (floatBitsToUint(a) >> 1u)); }
+
+void easuSet(inout vec2 dir, inout float len, vec2 pp, float w, float lA, float lB, float lC, float lD, float lE)
+{
+    float dc = lD - lC, cb = lC - lB;
+    float lenX = rcpLo(max(abs(dc), abs(cb)));
+    float dirX = lD - lB;
+    dir.x += dirX * w;
+    lenX = clamp(abs(dirX) * lenX, 0.0, 1.0);
+    lenX *= lenX;
+    len += lenX * w;
+    float ec = lE - lC, ca = lC - lA;
+    float lenY = rcpLo(max(abs(ec), abs(ca)));
+    float dirY = lE - lA;
+    dir.y += dirY * w;
+    lenY = clamp(abs(dirY) * lenY, 0.0, 1.0);
+    lenY *= lenY;
+    len += lenY * w;
+}
+
+void easuTap(inout vec3 aC, inout float aW, vec2 off, vec2 dir, vec2 len2, float lob, float clp, vec3 c)
+{
+    vec2 v = vec2(off.x * dir.x + off.y * dir.y, off.x * (-dir.y) + off.y * dir.x) * len2;
+    float d2 = min(v.x * v.x + v.y * v.y, clp);
+    float wB = (2.0 / 5.0) * d2 - 1.0;
+    float wA = lob * d2 - 1.0;
+    wB *= wB; wA *= wA;
+    wB = (25.0 / 16.0) * wB - (25.0 / 16.0 - 1.0);
+    float w = wB * wA;
+    aC += c * w; aW += w;
+}
+
+// one gather of R, G, B around the texel-corner point q (in texels), clamped to the source
+void gather3(vec2 q, vec2 lim, vec2 rcp, out vec4 r, out vec4 g, out vec4 b)
+{
+    vec2 p = clamp(q, vec2(1.0), lim - 1.0) * rcp;
+    r = textureGather(tSrc, p, 0); g = textureGather(tSrc, p, 1); b = textureGather(tSrc, p, 2);
+}
+
+vec4 easu(vec2 uv)
+{
+    vec2 size = vec2(textureSize(tSrc, 0)), rcp = 1.0 / size;
+    vec2 lim = size;
+    vec2 pp = uv * size - 0.5;
+    vec2 fp = floor(pp);
+    pp -= fp;
+    vec4 bczzR, bczzG, bczzB, ijfeR, ijfeG, ijfeB, klhgR, klhgG, klhgB, zzonR, zzonG, zzonB;
+    gather3(fp + vec2(1.0, -1.0), lim, rcp, bczzR, bczzG, bczzB);
+    gather3(fp + vec2(0.0, 1.0), lim, rcp, ijfeR, ijfeG, ijfeB);
+    gather3(fp + vec2(2.0, 1.0), lim, rcp, klhgR, klhgG, klhgB);
+    gather3(fp + vec2(1.0, 3.0), lim, rcp, zzonR, zzonG, zzonB);
+    vec4 bczzL = bczzB * 0.5 + (bczzR * 0.5 + bczzG);
+    vec4 ijfeL = ijfeB * 0.5 + (ijfeR * 0.5 + ijfeG);
+    vec4 klhgL = klhgB * 0.5 + (klhgR * 0.5 + klhgG);
+    vec4 zzonL = zzonB * 0.5 + (zzonR * 0.5 + zzonG);
+    float bL = bczzL.x, cL = bczzL.y, iL = ijfeL.x, jL = ijfeL.y, fL = ijfeL.z, eL = ijfeL.w;
+    float kL = klhgL.x, lL = klhgL.y, hL = klhgL.z, gL = klhgL.w, oL = zzonL.z, nL = zzonL.w;
+    vec2 dir = vec2(0.0); float len = 0.0;
+    easuSet(dir, len, pp, (1.0 - pp.x) * (1.0 - pp.y), bL, eL, fL, gL, jL);
+    easuSet(dir, len, pp, pp.x * (1.0 - pp.y), cL, fL, gL, hL, kL);
+    easuSet(dir, len, pp, (1.0 - pp.x) * pp.y, fL, iL, jL, kL, nL);
+    easuSet(dir, len, pp, pp.x * pp.y, gL, jL, kL, lL, oL);
+    vec2 dir2 = dir * dir;
+    float dirR = dir2.x + dir2.y;
+    bool zro = dirR < (1.0 / 32768.0);
+    dirR = rsqLo(dirR);
+    dirR = zro ? 1.0 : dirR;
+    dir.x = zro ? 1.0 : dir.x;
+    dir *= vec2(dirR);
+    len = len * 0.5;
+    len *= len;
+    float stretch = (dir.x * dir.x + dir.y * dir.y) * rcpLo(max(abs(dir.x), abs(dir.y)));
+    vec2 len2 = vec2(1.0 + (stretch - 1.0) * len, 1.0 - 0.5 * len);
+    float lob = 0.5 + ((1.0 / 4.0 - 0.04) - 0.5) * len;
+    float clp = rcpLo(lob);
+    vec3 fC = vec3(ijfeR.z, ijfeG.z, ijfeB.z), gC = vec3(klhgR.w, klhgG.w, klhgB.w);
+    vec3 jC = vec3(ijfeR.y, ijfeG.y, ijfeB.y), kC = vec3(klhgR.x, klhgG.x, klhgB.x);
+    vec3 min4 = min(min(fC, min(gC, jC)), kC), max4 = max(max(fC, max(gC, jC)), kC);
+    vec3 aC = vec3(0.0); float aW = 0.0;
+    easuTap(aC, aW, vec2(0.0, -1.0) - pp, dir, len2, lob, clp, vec3(bczzR.x, bczzG.x, bczzB.x));   // b
+    easuTap(aC, aW, vec2(1.0, -1.0) - pp, dir, len2, lob, clp, vec3(bczzR.y, bczzG.y, bczzB.y));   // c
+    easuTap(aC, aW, vec2(-1.0, 1.0) - pp, dir, len2, lob, clp, vec3(ijfeR.x, ijfeG.x, ijfeB.x));   // i
+    easuTap(aC, aW, vec2(0.0, 1.0) - pp, dir, len2, lob, clp, jC);                                 // j
+    easuTap(aC, aW, vec2(0.0, 0.0) - pp, dir, len2, lob, clp, fC);                                 // f
+    easuTap(aC, aW, vec2(-1.0, 0.0) - pp, dir, len2, lob, clp, vec3(ijfeR.w, ijfeG.w, ijfeB.w));   // e
+    easuTap(aC, aW, vec2(1.0, 1.0) - pp, dir, len2, lob, clp, kC);                                 // k
+    easuTap(aC, aW, vec2(2.0, 1.0) - pp, dir, len2, lob, clp, vec3(klhgR.y, klhgG.y, klhgB.y));   // l
+    easuTap(aC, aW, vec2(2.0, 0.0) - pp, dir, len2, lob, clp, vec3(klhgR.z, klhgG.z, klhgB.z));   // h
+    easuTap(aC, aW, vec2(1.0, 0.0) - pp, dir, len2, lob, clp, gC);                                 // g
+    easuTap(aC, aW, vec2(1.0, 2.0) - pp, dir, len2, lob, clp, vec3(zzonR.z, zzonG.z, zzonB.z));   // o
+    easuTap(aC, aW, vec2(0.0, 2.0) - pp, dir, len2, lob, clp, vec3(zzonR.w, zzonG.w, zzonB.w));   // n
+    return vec4(min(max4, max(min4, aC * (1.0 / aW))), 1.0);
+}
+
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= int(pc.dst.x) || p.y >= int(pc.dst.y)) return;
+    vec2 uv = (vec2(p) + 0.5) / pc.dst;
+    imageStore(oDst, p, easu(uv));
+}

@@ -137,14 +137,11 @@ final class GearText {
     static { for (int i = 0; i < KEYS.length; i++) AT.put(KEYS[i], i); }
     private GearText() {}
 
-    // The language index (LANGS) for this context: the menu language when picked, else the first of the phone's languages (its locale
-    // list, as Android picks values-xx: be + ru on the phone -> ru) that has a column, else English
+    // This port is Chinese only: every settings text is the zh column, whatever the phone's language or the menu language pref is. New keys
+    // must fill the zh column (an empty cell would fall back to the English first column).
     static int lang(Context c) {
-        String l = c.getSharedPreferences(Ui.PREFS, Context.MODE_PRIVATE).getString("ui_lang", "");
-        if (!l.isEmpty()) { int i = index(l); return i < 0 ? 0 : i; }
-        android.os.LocaleList ls = c.getResources().getConfiguration().getLocales();
-        for (int k = 0; k < ls.size(); k++) { int i = index(ls.get(k).getLanguage()); if (i >= 0) return i; }
-        return 0;
+        int i = index("zh");
+        return i < 0 ? 0 : i;
     }
     private static int index(String l) { for (int i = 0; i < LANGS.length; i++) if (LANGS[i].equals(l)) return i; return -1; }
     static String code(Context c) { return LANGS[lang(c)]; }

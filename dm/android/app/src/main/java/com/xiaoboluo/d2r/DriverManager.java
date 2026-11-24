@@ -61,7 +61,73 @@ final class DriverManager {
     private File dir() { return vk.dir(); }
     private String ua() { return host.dataDirName().replace(' ', '-') + "-driver-manager"; }   // DOOM 2016: "DOOM-Mobile-driver-manager"
     private File cacheDir() { File c = new File(dir(), ".cache"); c.mkdirs(); return c; }
-    private String t(String ru, String en) { return Ui.t(a, ru, en); }
+    // This port is Chinese only: the manager shows the Chinese text of the table below whatever the phone's language is (the English
+    // literal of the call site is the key; an unknown one falls back to English, so add a row when adding a text).
+    private static final String[][] ZH = {
+        {"any GPU", "任意 GPU"},
+        {"bundled with the APK", "APK 内置"},
+        {"downloaded automatically", "自动下载"},
+        {"downloaded", "已下载"},
+        {"from a file", "来自文件"},
+        {"imported", "已导入"},
+        {" from ", " 来自 "},
+        {"This phone: ", "本机："},
+        {"Pick the driver in the settings' \"Vulkan driver\" list; it applies on the next launch. Drivers for GPUs other than Adreno are experimental; if the game fails to reach its first frame twice with one, the system driver is used again.",
+            "在设置的「Vulkan 驱动」列表里选择驱动，下次启动生效。非 Adreno 的驱动属于实验性；同一驱动连续两次在首帧前失败时会自动改用系统驱动。"},
+        {"Install from file (zip)…", "从文件安装（zip）…"},
+        {"Download…", "下载…"},
+        {"Installed packages", "已安装的包"},
+        {"Vulkan drivers", "Vulkan 驱动"},
+        {"Close", "关闭"},
+        {"No packages: the system driver is used.", "没有驱动包：正在使用系统驱动。"},
+        {" — selected", "（已选中）"},
+        {"package ", "包 "},
+        {"Cannot run here: ", "无法在此运行："},
+        {"Delete ", "删除 "},
+        {"Delete the package ", "删除驱动包 "},
+        {"It comes back at the next start while it is in ", "只要它还在以下位置，下次启动会重新出现："},
+        {"Delete", "删除"},
+        {"Cancel", "取消"},
+        {"Installing ", "正在安装 "},
+        {" packages", " 个包"},
+        {"cancelled", "已取消"},
+        {"Installed:\n", "已安装：\n"},
+        {"Not installed:\n", "未安装：\n"},
+        {"Pick one in the settings' \"Vulkan driver\" list (applies on the next launch).", "在设置的「Vulkan 驱动」列表中选择（下次启动生效）。"},
+        {"Installing drivers", "安装驱动"},
+        {"this is not an adrenotools driver package (", "这不是 adrenotools 驱动包（"},
+        {"it cannot run on this phone: ", "不适用于此手机："},
+        {"Installed: ", "已安装："},
+        {"Pick it in the settings' \"Vulkan driver\" list (applies on the next launch).", "在设置的「Vulkan 驱动」列表中选择它（下次启动生效）。"},
+        {"Not installed: ", "未安装："},
+        {"matches GitHub", "与 GitHub 一致"},
+        {"GitHub gave no checksum to compare with", "GitHub 未提供可核对的校验值"},
+        {"GitHub's limit for anonymous requests is used up", "GitHub 匿名请求额度已用完"},
+        {" (until ", "（直到 "},
+        {"not found (404)", "未找到（404）"},
+        {"no connection", "无网络连接"},
+        {"Source list: ", "来源列表："},
+        {" (the saved one is shown)", "（显示的是已保存的）"},
+        {" (the saved list is shown)", "（显示的是已保存的列表）"},
+        {"Show all GPUs", "显示所有 GPU"},
+        {"Loading the list…", "正在加载列表…"},
+        {"Refresh the list", "刷新列表"},
+        {"Download a driver", "下载驱动"},
+        {"No sources for this phone's GPU; tick \"Show all GPUs\".", "没有适用于此手机 GPU 的来源；请勾选「显示所有 GPU」。"},
+        {"No matching zip packages in the releases.", "发布中没有匹配的 zip 包。"},
+        {" · pre-release", " · 预发布"},
+        {" · installed", " · 已安装"},
+        {"The SHA-256 is checked against GitHub's.", "SHA-256 将与 GitHub 的校验值比对。"},
+        {"GitHub gives no checksum for this file.", "GitHub 没有为这个文件提供校验值。"},
+        {"The installed package of this name is replaced.", "同名的已安装包会被替换。"},
+        {"Download?", "下载？"},
+        {"Download", "下载"},
+        {"the checksum does not match GitHub's", "校验值与 GitHub 不一致"},
+    };
+    private String t(String ru, String en) {
+        for (String[] z : ZH) if (z[0].equals(en)) return z[1];
+        return en;
+    }
     private LinearLayout vbox() { LinearLayout b = new LinearLayout(a); b.setOrientation(LinearLayout.VERTICAL); return b; }
     private TextView text(LinearLayout box, String s) { TextView v = new TextView(a); v.setText(s); box.addView(v); return v; }
     private TextView heading(LinearLayout box, String s) { TextView v = text(box, s); v.setPadding(0, 24, 0, 4); v.setTypeface(null, android.graphics.Typeface.BOLD); return v; }
@@ -109,15 +175,13 @@ final class DriverManager {
             + " (API " + android.os.Build.VERSION.SDK_INT + ")\n" + VkDrivers.hardwareSummary() + "\n"
             + t("Выбор драйвера — в списке «Драйвер Vulkan» в настройках, действует со следующего запуска. Драйверы не для Adreno — экспериментальные; если игра с драйвером дважды не дойдёт до первого кадра, включится системный.",
                 "Pick the driver in the settings' \"Vulkan driver\" list; it applies on the next launch. Drivers for GPUs other than Adreno are experimental; if the game fails to reach its first frame twice with one, the system driver is used again."));
-        Button file = button(box, t("Установить из файла (zip)…", "Install from file (zip)…"));
-        Button dl = button(box, t("Скачать…", "Download…")); if (host.driverSourcesUrl() == null) dl.setVisibility(android.view.View.GONE);
+        Button file = button(box, t("Установить из файла (zip)…", "Install from file (zip)…"));   // [BL2] 不给下载：只从文件装
         heading(box, t("Установленные пакеты", "Installed packages"));
         list = vbox(); box.addView(list); fill();
         ScrollView sc = new ScrollView(a); sc.addView(box);
         AlertDialog d = new AlertDialog.Builder(a).setTitle(t("Драйверы Vulkan", "Vulkan drivers")).setView(sc).setNegativeButton(t("Закрыть", "Close"), null).create();
         d.setOnDismissListener(x -> { host.immersive(); if (dirty && changed != null) changed.run(); });
         file.setOnClickListener(v -> pickFile());
-        dl.setOnClickListener(v -> showDownloads());
         d.show();
     }
     private void fill() {
@@ -160,6 +224,8 @@ final class DriverManager {
     }
 
     // ---- install from a file
+    // [BL2] the gear page's "Choose a driver ZIP…": the same system picker, no dialog list behind it
+    static void pickZip(VkDrivers d, Runnable done) { new DriverManager(d, done).pickFile(); }
     private void pickFile() {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT); i.addCategory(Intent.CATEGORY_OPENABLE); i.setType("*/*");
         i.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {"application/zip", "application/x-zip-compressed", "application/octet-stream"});
@@ -232,7 +298,7 @@ final class DriverManager {
             if (r.name != null) { any = true; ok.append("• ").append(r.name).append('\n'); }
             else bad.append("• ").append(names[i]).append(" — ").append(r.cancelled ? t("отменено", "cancelled") : r.error).append('\n');
         }
-        if (any) { dirty = true; fill(); if (dlRefresh != null) dlRefresh.run(); }
+        if (any) { dirty = true; fill(); if (dlRefresh != null) dlRefresh.run(); if (changed != null) changed.run(); }
         if (gone()) return;
         StringBuilder msg = new StringBuilder();
         if (ok.length() > 0) msg.append(t("Установлены:\n", "Installed:\n")).append(ok).append('\n');
@@ -274,7 +340,7 @@ final class DriverManager {
     private void done(Result r, String what) {
         if (r.cancelled) { host.crumb("driver manager: " + what + " cancelled"); return; }
         host.crumb("driver manager: " + what + (r.name != null ? " installed as " + r.name : " not installed: " + r.error) + (r.sha != null ? " sha256 " + r.sha + (r.verified ? " (matches GitHub)" : " (no digest)") : ""));
-        if (r.name != null) { dirty = true; fill(); if (dlRefresh != null) dlRefresh.run(); }
+        if (r.name != null) { dirty = true; fill(); if (dlRefresh != null) dlRefresh.run(); if (changed != null) changed.run(); }
         if (gone()) return;
         String msg = r.name != null
             ? t("Установлен: ", "Installed: ") + vk.label(r.name) + "\n\n" + t("Выберите его в списке «Драйвер Vulkan» в настройках (действует со следующего запуска).",

@@ -30,6 +30,9 @@ $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
 $env:PYTHONUTF8 = '1'
 $gradle = Env-Or 'GRADLE' 'gradle'
 $python = Env-Or 'PYTHON' 'python'
+$game = Env-Or 'DM_GAME_NAME' 'dos2'
+$appid = Env-Or 'DM_APP_ID' 'org.dos2.port'
+$apkName = Env-Or 'DM_APK_NAME' 'DOS2-port'
 $keystore = Env-Or 'DM_KEYSTORE' (Join-Path $HOME '.android/debug.keystore')
 $kspass = Env-Or 'DM_KEYSTORE_PASS' 'android'
 $alias = Env-Or 'DM_KEY_ALIAS' 'androiddebugkey'
@@ -39,7 +42,7 @@ $adb = Join-Path $env:ANDROID_HOME 'platform-tools/adb'
 $bdir = if ($Android10) { 'work/build-android29' } else { 'work/build-android' }
 $jdir = if ($Android10) { 'work/jni29' } else { 'work/jni' }
 $minsdk = if ($Android10) { '29' } else { '31' }
-$apk = if ($Android10) { 'work/DOS2-port-debug-android10.apk' } else { 'work/DOS2-port-debug.apk' }
+$apk = if ($Android10) { "work/$apkName-debug-android10.apk" } else { "work/$apkName-debug.apk" }
 if ($Android10 -and -not (Test-Path $bdir/CMakeCache.txt) -and (Test-Path work/build-android/CMakeCache.txt)) {
     # The Android 10 tree: the same generator, toolchain, ninja, build type and game as work/build-android, platform android-29
     $cache = Get-Content work/build-android/CMakeCache.txt
@@ -51,8 +54,8 @@ if ($Android10 -and -not (Test-Path $bdir/CMakeCache.txt) -and (Test-Path work/b
     & cmake @cfg *> work/logs/native-configure29.log
     if ($LASTEXITCODE) { throw "Configuring $bdir failed (work/logs/native-configure29.log)" }
 }
-if (-not (Test-Path $bdir/CMakeCache.txt)) { throw "Configure the native build first: cmake -S dm/android -B $bdir ... -DDM_GAME=dos2$(if ($Android10) { ' -DANDROID_PLATFORM=android-29' }) (README.md, Building)" }
-if (-not (Select-String -Path $bdir/CMakeCache.txt -Pattern '^DM_GAME:STRING=dos2$' -Quiet)) { throw "$bdir is not configured with -DDM_GAME=dos2" }
+if (-not (Test-Path $bdir/CMakeCache.txt)) { throw "Configure the native build first: cmake -S dm/android -B $bdir ... -DDM_GAME=$game$(if ($Android10) { ' -DANDROID_PLATFORM=android-29' }) (README.md, Building)" }
+if (-not (Select-String -Path $bdir/CMakeCache.txt -Pattern "^DM_GAME:STRING=$([regex]::Escape($game))`$" -Quiet)) { throw "$bdir is not configured with -DDM_GAME=$game" }
 New-Item -ItemType Directory -Force work/logs, $jdir/arm64-v8a | Out-Null
 
 & cmake --build $bdir --target dm *> work/logs/native-dm.log
@@ -91,15 +94,15 @@ if (Test-Path dm/android/dos2/dos2-pipe-seed.bin) { Copy-Item dm/android/dos2/do
 $drv = '-PdmDriverAssets=' + ((Resolve-Path $fa).Path -replace '\\', '/')
 if (-not (Get-Command $gradle -ErrorAction SilentlyContinue)) { throw "Gradle not found: '$gradle' (put gradle on PATH or set GRADLE to gradle.bat)" }
 $built = Join-Path $PWD 'dm/android/app/build/outputs/apk/debug/app-debug.apk'; if (Test-Path $built) { Remove-Item $built }   # never re-sign a stale APK
-& $gradle -p dm/android :app:assembleDebug '-PdmGame=dos2' '-PdmAppId=org.dos2.port' "-PdmPython=$python" "-PdmPrebuiltJni=$jni" "-PdmMinSdk=$minsdk" --console plain $drv *> work/logs/gradle-apk.log
+& $gradle -p dm/android :app:assembleDebug "-PdmGame=$game" "-PdmAppId=$appid" "-PdmPython=$python" "-PdmPrebuiltJni=$jni" "-PdmMinSdk=$minsdk" --console plain $drv *> work/logs/gradle-apk.log
 if ($LASTEXITCODE) { throw 'APK build failed (work/logs/gradle-apk.log)' }
 if (-not (Test-Path $built)) { throw 'APK build produced no app-debug.apk (work/logs/gradle-apk.log)' }
 if (-not (Test-Path $keystore)) { throw "Keystore not found: $keystore (set DM_KEYSTORE; Android Studio creates ~/.android/debug.keystore, or: keytool -genkeypair -keystore <file> -alias androiddebugkey -storepass android -keypass android -keyalg RSA -validity 10000 -dname CN=Android)" }
 & $apksigner sign --ks $keystore --ks-pass "pass:$kspass" --key-pass "pass:$kspass" --ks-key-alias $alias --out $apk dm/android/app/build/outputs/apk/debug/app-debug.apk
 if ($LASTEXITCODE) { throw 'APK signing failed' }
-$ver = (Get-Content dm/android/dos2/VERSION -TotalCount 1).Trim()
+$ver = (Get-Content "dm/android/$game/VERSION" -TotalCount 1).Trim()
 New-Item -ItemType Directory -Force dist | Out-Null
-$rel = "dist/DOS2-Mobile-v$ver-arm64$(if ($Android10) { '-android10' }).apk"
+$rel = "dist/$apkName-Mobile-v$ver-arm64$(if ($Android10) { '-android10' }).apk"
 Copy-Item $apk $rel -Force
 Get-Item $apk, $rel | Select-Object FullName, Length
 if ($Install) {

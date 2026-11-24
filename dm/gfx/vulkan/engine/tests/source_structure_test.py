@@ -2672,8 +2672,8 @@ def nrtrx_check():
     a = g.index('void mark(uint64_t address,uint64_t bytes){'); mk = g[a:g.index('\n}\n', a)]
     assert mk.index('trx_guard(address,bytes);') < mk.index('int n=count.load('), 'NR-TRX: the guard runs before the write is marked (and before the caller writes)'
     a = g.index('void trx_guard(uint64_t address,uint64_t bytes){'); gd = g[a:g.index('\n}\n', a)]
-    assert 'const bool act=trx::stm!=2;' in gd and 'if(act)gpu_sync(trx::g_syncs);' in gd and 'if(act){if(old.pending)retire_slot(old);if(need_prev && prev.pending)retire_slot(prev);}' in gd, 'NR-TRX: the guard waits at 1 / 3, counts at 2'
-    assert 'uint64_t trx_floor(){uint64_t f=slot_serial;if(slots[slot_index^1].pending && slot_serial>=1)f=slot_serial-1;if(slots[slot_index].pending && slot_serial>=2)f=slot_serial-2;return f;}' in g, 'NR-TRX: the floor = the oldest pending slot'
+    assert 'const bool act=trx::stm!=2;' in gd and 'if(act)gpu_sync(trx::g_syncs);' in gd and 'if(act){for(int i=0;i<slot_count;i++){Slot *o=oldest_pending();' in gd, 'NR-TRX: the guard waits at 1 / 3, counts at 2'
+    assert 'uint64_t trx_floor(){int p=0;for(int i=0;i<slot_count;i++)if(slots[i].pending)++p;' in g, 'NR-TRX: the floor = the oldest pending slot'
     for site in ('zc::mark(a[1],a[2]);invalidate_cpu_range(a[1],a[2]);memmove(', 'zc::mark(a[0],a[1]);invalidate_cpu_range(a[0],a[1]);memcpy(', 'zc::mark(a.addr,bytes);invalidate_cpu_range(a.addr,bytes);uint32_t *d=', 'zc::mark(addr,16);invalidate_cpu_range(addr,16);memset('):
         assert g.count(site) == 1, 'NR-TRX: every replay CPU write is marked (guarded) before it lands: ' + site
     assert g.count('zc::mark(') == 4, 'NR-TRX: a new replay CPU write site -> mark (guard) it before the write'

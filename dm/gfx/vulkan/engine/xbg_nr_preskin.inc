@@ -44,7 +44,7 @@ struct Job{VkPipeline pipe{};VkPipelineLayout pl{};VkDescriptorSet set{};uint32_
 struct Sets{std::vector<VkDescriptorSet> v;size_t used=0;};
 struct SlotSt{uint64_t serial=~0ull;VkBuffer buf{};VkDeviceMemory mem{};uint8_t *map=nullptr;bool coh=true;nrps_bump bump{};VkDescriptorPool pool{};
     std::vector<Job> jobs;std::vector<nrps_rec> recs;std::unordered_multimap<uint64_t,uint32_t> by_bucket;std::unordered_map<const void*,Sets> sets;};
-SlotSt S[2];VkRenderPass rp{};VkFramebuffer fb{};
+SlotSt S[MAX_SLOTS];VkRenderPass rp{};VkFramebuffer fb{};
 struct Plan_t{bool on=false;uint32_t k=0,stride=0,lay_id=0;uint64_t code=0;Buffer view{};Plan *pl=nullptr;Cons *c=nullptr;} P;   // the draw in hand
 struct Stats{uint64_t draws,sk[2],sk_idx[2],why[W_N],why_idx[W_N],elig[2],elig_idx[2],applied[2],applied_idx[2],recs[2],rec_verts[2],rec_bytes,own[2],sup[2],
     jobs,code_mismatch,ops_saved,ops_slice,cyc_saved,cyc_slice;} s{};

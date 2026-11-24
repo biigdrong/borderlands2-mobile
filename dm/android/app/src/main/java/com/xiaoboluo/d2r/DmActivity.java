@@ -54,10 +54,11 @@ public class DmActivity extends Activity implements SurfaceHolder.Callback, Disp
     static final boolean ETERNAL = "eternal".equals(BuildConfig.DM_GAME);   // [ETERNAL] DOOM Eternal: the DOOM front end, own data folder
     static final boolean XC2 = "xc2".equals(BuildConfig.DM_GAME);   // [XC2] Xenoblade Chronicles 2: the DOOM front end, own data folder
     static final boolean DOS2 = "dos2".equals(BuildConfig.DM_GAME);   // [DOS2] Divinity: Original Sin 2 DE: the TL2 front end for now, own data folder
+    static final boolean BL2 = "bl2".equals(BuildConfig.DM_GAME);   // [BL2] Borderlands 2: the DOOM front end, own data folder
     static final boolean TL2 = "tl2".equals(BuildConfig.DM_GAME) || DOS2;   // [TL2] Torchlight II: the D3 front end (same ARPG controls), own data folder
     static final boolean D3 = "d3".equals(BuildConfig.DM_GAME) || TL2;   // [D3] Diablo III: Eternal Collection: the DOOM front end, own data folder
-    static final boolean DOOM = "doom".equals(BuildConfig.DM_GAME) || ETERNAL || XC2 || D3;
-    static final String DATA_DIR = DOS2 ? "DivinityOriginalSin2Mobile" : TL2 ? "Torchlight2Mobile" : D3 ? "Diablo3Mobile" : XC2 ? "Xenoblade2Mobile" : ETERNAL ? "DOOM Eternal Mobile" : "DOOM Mobile";   // [DOOM] Download/<DATA_DIR>/{romfs,dm,drivers}
+    static final boolean DOOM = "doom".equals(BuildConfig.DM_GAME) || ETERNAL || XC2 || D3 || BL2;
+    static final String DATA_DIR = BL2 ? "Borderlands2Mobile" : DOS2 ? "DivinityOriginalSin2Mobile" : TL2 ? "Torchlight2Mobile" : D3 ? "Diablo3Mobile" : XC2 ? "Xenoblade2Mobile" : ETERNAL ? "DOOM Eternal Mobile" : "DOOM Mobile";   // [DOOM] Download/<DATA_DIR>/{romfs,dm,drivers}
     private DoomPadView doomPad;
     private D3PadView d3Pad;   // [D3] its own on-screen controls (touch / gamepad layouts) instead of doomPad
     static native int nativeStart(String filesDir, String extDir, String romfsSrc, String lang);
@@ -99,7 +100,7 @@ public class DmActivity extends Activity implements SurfaceHolder.Callback, Disp
     static native void nativeQuit();
     static native int nativeOpmode();
     static native void nativeSetOpmode(int mode);
-    static final String FRONT_DATA_DIR = DOS2 ? "DivinityOriginalSin2Mobile" : TL2 ? "Torchlight2Mobile" : "Diablo3Mobile";   // Download/<this>: the player's data folder; save exports go to its saves/
+    static final String FRONT_DATA_DIR = BL2 ? "Borderlands2Mobile" : DOS2 ? "DivinityOriginalSin2Mobile" : TL2 ? "Torchlight2Mobile" : "Diablo3Mobile";   // Download/<this>: the player's data folder; save exports go to its saves/
     private FrontMenu front;
     private SaveTransfer saves;
     static native void nativeContext(Object context);
@@ -178,11 +179,33 @@ public class DmActivity extends Activity implements SurfaceHolder.Callback, Disp
         view.getHolder().addCallback(this);
         gameFrame = new FrameLayout(this);
         gameFrame.addView(view, new FrameLayout.LayoutParams(-1, -1));
-        if (XC2 || D3) { gameFrame.setBackgroundColor(0xff000000); gameFrame.addOnLayoutChangeListener((lv, l0, t0, r0, b0, ol, ot, or0, ob) -> { if (r0 - l0 != or0 - ol || b0 - t0 != ob - ot) applyAspectLayout(); }); }
+        if (XC2 || D3 || BL2) { gameFrame.setBackgroundColor(0xff000000); gameFrame.addOnLayoutChangeListener((lv, l0, t0, r0, b0, ol, ot, or0, ob) -> { if (r0 - l0 != or0 - ol || b0 - t0 != ob - ot) applyAspectLayout(); }); }
         setContentView(gameFrame);
         immersiveBars();
+        // [BL2] 请求系统游戏模式（Android 12+ 官方 Game Mode API）：ColorOS/OriginOS 等会据此开性能调度。
+        // 这是正规入口：不像改包名冒充别的游戏那样破坏升级/数据，也不会被厂商签名校验拦下。
+        // [BL2] Ask the vendor's game mode for performance through the official Android 12+ Game Mode API;
+        // safer than impersonating another game's package (keeps updates/data, passes signature checks).
+        requestGameMode();
         // [front] Back (the key, the gesture) opens / closes the pause menu; targetSdk 36 delivers it only through this callback on Android 13+
         if (DOOM && android.os.Build.VERSION.SDK_INT >= 33) getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::backPressed);
+    }
+
+    // [BL2] 官方游戏模式请求：GAME_MODE_PERFORMANCE（常量 2）。用反射调用，编译期不依赖该 API。
+    private void requestGameMode() {
+        if (android.os.Build.VERSION.SDK_INT < 31) return;
+        try {
+            Object gm = getSystemService("game");
+            if (gm == null) { android.util.Log.i("dm", "game mode: no GameManager"); return; }
+            int was = -1;
+            try { was = (Integer) gm.getClass().getMethod("getGameMode").invoke(gm); } catch (Throwable ignored) {}
+            gm.getClass().getMethod("setGameMode", int.class).invoke(gm, 2);   // 2 = GAME_MODE_PERFORMANCE
+            int now = -1;
+            try { now = (Integer) gm.getClass().getMethod("getGameMode").invoke(gm); } catch (Throwable ignored) {}
+            android.util.Log.i("dm", "game mode: performance requested (was=" + was + " now=" + now + ")");
+        } catch (Throwable t) {
+            android.util.Log.i("dm", "game mode: not supported (" + t + ")");
+        }
     }
 
     // ---- [front] FrontMenu.Host: what the pause menu asks of this port (frontend-common, docs/FRONTEND_UNIFIED.md)
@@ -238,7 +261,7 @@ public class DmActivity extends Activity implements SurfaceHolder.Callback, Disp
         String imp = ((SaveTransfer) saves()).applyPending();
         if (imp != null) android.widget.Toast.makeText(this, imp.startsWith("!") ? imp.substring(1) : imp, android.widget.Toast.LENGTH_LONG).show();
     }
-    @Override public String gameName() { return DOS2 ? "Divinity: Original Sin 2" : TL2 ? "Torchlight II" : "Diablo III"; }
+    @Override public String gameName() { return DOS2 ? "Divinity: Original Sin 2" : TL2 ? "Torchlight II" : BL2 ? "Borderlands 2" : "Diablo III"; }
     // [D3] the mode row: the Switch operation mode, live (nativeSetOpmode -> hle_oe.c dm_set_opmode, notifications 30 / 31; the widescreen patch
     // covers both window sizes, hle_d3.c), and kept in the gear dialog's "handheld" pref (DM_OPMODE at the next start, as before); docked = the default
     @Override public int modeKind() { return FrontMenu.MODE_OPMODE; }
@@ -529,6 +552,8 @@ public class DmActivity extends Activity implements SurfaceHolder.Callback, Disp
     @Override public boolean libraryLoaded() { return libraryLoaded; }
     @Override public boolean started() { return started; }
     @Override public VkDrivers drivers() { return drivers; }
+    // [BL2] 默认就是系统驱动：开源驱动由玩家自己选 ZIP 装进来，不按 GPU 猜默认
+    @Override public String defaultDriver(VkDrivers d) { return BL2 ? "" : d.gpuDefault(); }
     @Override public java.util.List<GearSettings.Section> gearSections(GearSettings g) { return Tl2Gear.sections(this, g); }
     @Override public String driverStatus() { return nativeDriverStatus(); }
     @Override public float[] frameStats() { try { nativeFrameStats(gearStats); } catch (Throwable t) { gearStats[0] = 0; } return gearStats; }
@@ -649,10 +674,14 @@ public class DmActivity extends Activity implements SurfaceHolder.Callback, Disp
     // game's buffer); stretched and widened = the whole screen. A game started widened renders at the screen's aspect, so it fills the screen
     // whatever the saved choice until the next launch.
     void applyAspectLayout() {
-        if (!(XC2 || D3) || view == null || gameFrame == null) return;   // [D3] 0 = 16:9 with bars (default), 1 = stretched, 2 = widescreen (W x 900 at the screen's aspect)
+        if (!(XC2 || D3 || BL2) || view == null || gameFrame == null) return;   // [D3] 0 = 16:9 with bars (default), 1 = stretched, 2 = widescreen (W x 900 at the screen's aspect)
         runOnUiThread(() -> {
-            int mode = XC2 && startedAspect == 2 ? 2 : doomPrefs().getInt("aspect", XC2 ? ASPECT_DEFAULT : D3_ASPECT_DEFAULT);
-            if (D3) mode = startedAspect == 2 ? 2 : (TL2 && startedAspect < 0 && mode == 2) ? 2 : mode == 2 ? 0 : mode;   // [D3] widescreen = whole screen only when the game was started with it;
+            int mode;
+            if (BL2) mode = doomPrefs().getInt("aspect", 0);   // [BL2] 0 = 16:9 加黑边（SurfaceView 本身做成 16:9），1 / 2 = 铺满
+            else {
+                mode = XC2 && startedAspect == 2 ? 2 : doomPrefs().getInt("aspect", XC2 ? ASPECT_DEFAULT : D3_ASPECT_DEFAULT);
+                if (D3) mode = startedAspect == 2 ? 2 : (TL2 && startedAspect < 0 && mode == 2) ? 2 : mode == 2 ? 0 : mode;   // [D3] widescreen = whole screen only when the game was started with it;
+            }
             // [TL2] before the host starts the saved choice is what it will start with (a 16:9 view here made the first surface 16:9)
             GearDisplay.fitSurface(view, gameFrame, mode == 0);
         });
@@ -1039,8 +1068,9 @@ public class DmActivity extends Activity implements SurfaceHolder.Callback, Disp
                 .append(usedPads.contains(id) ? " used" : "").append(c ? " -> controller" : "");
         }
         String s = list.toString();   // one log per change: which device hides the on-screen pad is visible in boot.log
-        if (!s.equals(lastInputDevices)) { lastInputDevices = s; android.util.Log.i("dm", "[input] devices (on-screen pad " + (any ? "hidden: controller" : "shown") + "):" + s); }
-        if (doomPad != null) doomPad.setControllerMode(any);
+        if (!s.equals(lastInputDevices)) { lastInputDevices = s; android.util.Log.i("dm", "[input] devices (on-screen pad " + (BL2 ? any ? "auto-hides in 10 s: controller" : "shown" : any ? "hidden: controller" : "shown") + "):" + s); }
+        // [BL2] A real controller no longer takes the pad away: the controls stay and only auto-hide after 10 idle seconds; unplugging restores the player's own auto-hide setting
+        if (doomPad != null) { if (BL2) doomPad.controllerAutoHide(any); else doomPad.setControllerMode(any); }
         if (d3Pad != null) d3Pad.setControllerMode(any);
         if (DOS2 && dos2PadOn != any) { dos2PadOn = any; if (libraryLoaded) dos2ColumnApply(); }   // [DOS2] the button column follows the pad (gear rule)
     }

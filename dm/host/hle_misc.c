@@ -18,6 +18,8 @@ enum { AOC_WARLOCK = 1 };
 #if defined(DM_GAME_ETERNAL)   // [ETERNAL] AOC 1..5 = Rip and Tear, Deluxe, Campaign (the update makes the campaign an add-on), The Ancient Gods 1 / 2;
 // their content is in the update's RomFS (base/game/dlc*): owned unless DM_AOC_OWNED=0
 static int aoc_owned(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_AOC_OWNED"); v = !(e && !strcmp(e, "0")); } return v; }
+#elif defined(DM_GAME_BL2)   // [BL2] 1 = season pass ticket (empty marker), 2 = Commander Lilith (the real content); owned unless DM_AOC_OWNED=0
+static int aoc_owned(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_AOC_OWNED"); v = !(e && !strcmp(e, "0")); } return v; }
 #elif defined(DM_GAME_TL2)   // [TL2] AOC 1 = "Yapper" pet (010090400D367001): none unless DM_AOC_OWNED=1 (its RomFS in DM_AOC/1)
 static int aoc_owned(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_AOC_OWNED"); v = e && !strcmp(e, "1"); } return v; }
 #elif defined(DM_GAME_D3)
@@ -56,6 +58,9 @@ static const int g_aoc_owned[] = {1, 2, 3, 4, 5};
 // [XC2] AOC 0100E9500403900N: 1 Torna - The Golden Country, 2 New Quests, 3 New Rare Blade, 4 New Challenge Mode, 5 Helpful Items,
 // 6 My Nintendo Bonus Items, 99 (0x63) Japanese voice; owned only with DM_AOC_OWNED=1 (their RomFS must be in DM_AOC/<index>)
 static const int g_aoc_owned[] = {1, 2, 3, 4, 5, 6, 99};
+#elif defined(DM_GAME_BL2)
+// [BL2] Switch titles 010096F00FF23001 / 010096F00FF23002: index 1 is an empty ticket, index 2 carries Commander Lilith (aoc/2)
+static const int g_aoc_owned[] = {1, 2};
 #elif !defined(DM_GAME_D3) || defined(DM_GAME_TL2)
 static const int g_aoc_owned[] = {AOC_WARLOCK};
 #endif

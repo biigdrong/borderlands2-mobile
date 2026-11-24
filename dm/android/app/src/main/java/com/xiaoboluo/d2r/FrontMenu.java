@@ -69,7 +69,59 @@ final class FrontMenu implements PauseMenu.Listener {
         frame.addView(menu, new FrameLayout.LayoutParams(-1, -1));
     }
     boolean isOpen() { return open; }
-    private String t(String ru, String en) { return Ui.t(act, ru, en); }
+    // This port is Chinese only: the pause menu and the gamepad dialog show the Chinese text below whatever the phone's language is (the
+    // English literal of the call site is the key; an unknown one falls back to English, so add a row when adding a text).
+    private static final String[][] ZH = {
+        {"Paused", "已暂停"},
+        {"Resume", "继续游戏"},
+        {"Game settings…", "游戏设置…"},
+        {"On-screen gamepad…", "屏幕手柄…"},
+        {"Edit the layout", "编辑布局"},
+        {"Mode: docked (full quality)", "模式：主机（完整画质）"},
+        {"Mode: handheld (light)", "模式：掌机（轻量）"},
+        {"Switch mode: docked (TV)", "Switch 模式：主机（TV）"},
+        {"Switch mode: handheld", "Switch 模式：掌机"},
+        {"Export save", "导出存档"},
+        {"Import save…", "导入存档…"},
+        {"Check for updates", "检查更新"},
+        {"Quit game", "退出游戏"},
+        {"The game switches when it goes on", "继续游戏时会切换模式"},
+        {"The mode did not switch", "模式未切换"},
+        {"Exporting…", "正在导出…"},
+        {"Failed: ", "失败："},
+        {"no save yet", "还没有存档"},
+        {"Saved: saves/", "已保存：saves/"},
+        {"Quit the game? Unsaved progress is lost.", "退出游戏？未保存的进度会丢失。"},
+        {"Quit", "退出"},
+        {"Cancel", "取消"},
+        {"No exports in ", "在以下位置没有导出："},
+        {"files", "个文件"},
+        {"Import a save", "导入存档"},
+        {"Import", "导入"},
+        {"Closing for the import: start the game again", "正在关闭以导入：请重新启动游戏"},
+        {"Skin: ", "皮肤："},
+        {"Gamepad skin", "手柄皮肤"},
+        {"Controls' opacity", "控件不透明度"},
+        {"Controls' size", "控件大小"},
+        {"Layout:", "布局："},
+        {"Turn the camera by swiping a free spot", "在空白处滑动转动镜头"},
+        {"Floating move stick: appears under the finger on the left part of the screen", "浮动移动摇杆：出现在屏幕左侧手指下"},
+        {"Floating stick zone (share of the screen width)", "浮动摇杆区域（占屏幕宽度比例）"},
+        {"Show the gamepad (the menu button always shows)", "显示手柄（菜单按钮始终显示）"},
+        {"Edit the layout…", "编辑布局…"},
+        {"Reset the layout", "重置布局"},
+        {"Layout reset", "布局已重置"},
+        {"Menu language: ", "菜单语言："},
+        {"System", "跟随系统"},
+        {"On-screen gamepad", "屏幕手柄"},
+        {"Done", "完成"},
+        {"The game's own layout (as before)", "游戏原生布局（与之前相同）"},
+        {"Switch: two sticks, nx2android's layout", "Switch：双摇杆，nx2android 布局"},
+    };
+    private String t(String ru, String en) {
+        for (String[] z : ZH) if (z[0].equals(en)) return z[1];
+        return en;
+    }
 
     private void rebuild() {
         String[] port = host.portRows(); int np = port == null ? 0 : port.length;
@@ -252,12 +304,6 @@ final class FrontMenu implements PauseMenu.Listener {
         android.widget.Button edit = new android.widget.Button(act); edit.setText(t("Изменить раскладку…", "Edit the layout…")); box.addView(edit);
         android.widget.Button reset = new android.widget.Button(act); reset.setText(t("Сбросить раскладку", "Reset the layout")); box.addView(reset);
         reset.setOnClickListener(v -> { pad.resetLayout(); Toast.makeText(act, t("Раскладка сброшена", "Layout reset"), Toast.LENGTH_SHORT).show(); });
-        TextView lang = new TextView(act); lang.setPadding(0, 24, 0, 0); lang.setText(t("Язык меню: ", "Menu language: ")); box.addView(lang);
-        RadioGroup lg = new RadioGroup(act); lg.setOrientation(RadioGroup.HORIZONTAL);
-        String[] ln = {t("Как в системе", "System"), "Русский", "English"}, lc = {"", "ru", "en"}; String lw = act.getSharedPreferences(Ui.PREFS, Activity.MODE_PRIVATE).getString("ui_lang", "");
-        for (int i = 0; i < 3; i++) { RadioButton b = new RadioButton(act); b.setId(6200 + i); b.setText(ln[i]); lg.addView(b); if (lc[i].equals(lw)) lg.check(6200 + i); }
-        lg.setOnCheckedChangeListener((gg, id) -> { act.getSharedPreferences(Ui.PREFS, Activity.MODE_PRIVATE).edit().putString("ui_lang", lc[Math.max(0, Math.min(2, id - 6200))]).apply(); rebuild(); });
-        box.addView(lg);
         ScrollView scroll = new ScrollView(act); scroll.addView(box);
         AlertDialog d = new AlertDialog.Builder(act).setTitle(t("Экранный геймпад", "On-screen gamepad")).setView(scroll).setPositiveButton(t("Готово", "Done"), null).create();
         edit.setOnClickListener(v -> { d.dismiss(); edit(); });

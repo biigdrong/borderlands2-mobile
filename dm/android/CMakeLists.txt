@@ -14,8 +14,8 @@
 cmake_minimum_required(VERSION 3.22)
 project(dm_android C CXX ASM)
 # [DOOM] Target game: d2r (upstream default, unchanged) | doom (lean core: no D2R feature code, no D2R-derived generated headers).
-set(DM_GAME "d2r" CACHE STRING "Target game: d2r | doom | eternal | xc2 | d3 | tl2 | dos2")
-set_property(CACHE DM_GAME PROPERTY STRINGS d2r doom eternal xc2 d3 tl2 dos2)
+set(DM_GAME "d2r" CACHE STRING "Target game: d2r | doom | eternal | xc2 | d3 | tl2 | dos2 | bl2")
+set_property(CACHE DM_GAME PROPERTY STRINGS d2r doom eternal xc2 d3 tl2 dos2 bl2)
 # [DOS2] Divinity: Original Sin 2 DE (Larian engine, SDK 9.3.0 sdk build 230994ac) = the TL2 build (DOOM core + DM_GAME_D3 + DM_GAME_TL2
 #  generic parts) plus DM_GAME_DOS2; Torchlight II main-address code (widescreen, UI taps, icons, map, Pia trace) is gated DM_TL2_MAIN = tl2 only.
 # [ETERNAL] DOOM Eternal (id Tech 7, same Switch port family) builds on the DOOM code base plus DM_GAME_ETERNAL for its differences.
@@ -24,7 +24,9 @@ set_property(CACHE DM_GAME PROPERTY STRINGS d2r doom eternal xc2 d3 tl2 dos2)
 # [D3] Diablo III: Eternal Collection (SDK 8.2.0, NVN API 53) = the lean DOOM core plus DM_GAME_D3; gate decisions in docs/d3/D3_GATES.md.
 # [TL2] Torchlight II (Ogre + FMOD, Panic Button; SDK 8.2.0 sdk build 3ae34e68 = D3's, NVN API 53) = the D3 build (generic SDK 8.2 HLE, NVN
 #  gates) plus DM_GAME_TL2 that turns off D3 main-address code (widescreen, loading screen, UI taps), VAMM, AOC/language scans.
-if(DM_GAME STREQUAL "doom" OR DM_GAME STREQUAL "eternal" OR DM_GAME STREQUAL "xc2" OR DM_GAME STREQUAL "d3" OR DM_GAME STREQUAL "tl2" OR DM_GAME STREQUAL "dos2")
+# [BL2] Borderlands 2 (UE3 + Wwise, SDK 9.3.0 sdk build 230994ac = DOS2's) starts from the lean DOOM core plus DM_GAME_BL2, with no
+#  game-specific generated tables: everything BL2 needs is attached to its own profile as the port grows.
+if(DM_GAME STREQUAL "doom" OR DM_GAME STREQUAL "eternal" OR DM_GAME STREQUAL "xc2" OR DM_GAME STREQUAL "d3" OR DM_GAME STREQUAL "tl2" OR DM_GAME STREQUAL "dos2" OR DM_GAME STREQUAL "bl2")
   set(DM_GAME_DOOM ON)
   add_compile_definitions(DM_GAME_DOOM=1)
   if(DM_GAME STREQUAL "eternal")
@@ -33,10 +35,13 @@ if(DM_GAME STREQUAL "doom" OR DM_GAME STREQUAL "eternal" OR DM_GAME STREQUAL "xc
   if(DM_GAME STREQUAL "xc2")
     add_compile_definitions(DM_GAME_XC2=1)
   endif()
-  if(DM_GAME STREQUAL "d3" OR DM_GAME STREQUAL "tl2" OR DM_GAME STREQUAL "dos2")
+  if(DM_GAME STREQUAL "bl2")
+    add_compile_definitions(DM_GAME_BL2=1)
+  endif()
+  if(DM_GAME STREQUAL "d3" OR DM_GAME STREQUAL "tl2" OR DM_GAME STREQUAL "dos2" OR DM_GAME STREQUAL "bl2")
     add_compile_definitions(DM_GAME_D3=1)
   endif()
-  if(DM_GAME STREQUAL "tl2" OR DM_GAME STREQUAL "dos2")
+  if(DM_GAME STREQUAL "tl2" OR DM_GAME STREQUAL "dos2" OR DM_GAME STREQUAL "bl2")
     add_compile_definitions(DM_GAME_TL2=1)
   endif()
   if(DM_GAME STREQUAL "tl2")
@@ -51,7 +56,7 @@ if(DM_GAME STREQUAL "doom" OR DM_GAME STREQUAL "eternal" OR DM_GAME STREQUAL "xc
   endif()
   file(MAKE_DIRECTORY ${DM_GEN_DIR})
 elseif(NOT DM_GAME STREQUAL "d2r")
-  message(FATAL_ERROR "DM_GAME must be d2r, doom, eternal, xc2, d3, tl2 or dos2 (got '${DM_GAME}')")
+  message(FATAL_ERROR "DM_GAME must be d2r, doom, eternal, xc2, d3, tl2, dos2 or bl2 (got '${DM_GAME}')")
 endif()
 # 产物里不留本机路径（断言带的 __FILE__、调试信息里的源文件 / 生成目录 / NDK 路径都会编进 libdm.so，暴露用户名与目录结构）：
 # 一律换成中性前缀。长的在前（构建目录在源码树里面）。发布包核对见 tools/shell_apk.sh。

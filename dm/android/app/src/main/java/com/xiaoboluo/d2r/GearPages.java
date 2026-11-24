@@ -140,8 +140,7 @@ final class GearPages {
                 ArrayList<String> offered = new ArrayList<>(); StringBuilder hiddenWhy = new StringBuilder();
                 for (String n : d.packages()) { String why = d.problem(n); if (why == null) offered.add(n); else hiddenWhy.append("\n- ").append(d.label(n)).append(": ").append(d.reasonText(why)); }
                 names = offered.toArray(new String[0]);
-                if (hiddenWhy.length() > 0) s.text(drvBox, s.t("Скрыты (не подходят этому телефону, " + VkDrivers.hardwareSummary() + "):",
-                    "Hidden (cannot run on this phone, " + VkDrivers.hardwareSummary() + "):") + hiddenWhy);
+                if (hiddenWhy.length() > 0) s.text(drvBox, s.str(R.string.d3_driver_hidden, VkDrivers.hardwareSummary()) + hiddenWhy);
                 String[] labels = new String[names.length + 1]; labels[0] = s.s("gear_driver_system");
                 for (int i = 0; i < names.length; i++) labels[i + 1] = d.label(names[i]);
                 String cur = want != null && (want.isEmpty() || offered.contains(want)) ? want : s.gamePrefs().getString("driver", d.defaultDriver());
@@ -160,6 +159,10 @@ final class GearPages {
                     // (2.25) why it fell back, or what the GPU reports for the custom driver (vk_driver.c verified it)
                     if (fell || (st.length > 3 && !st[0].isEmpty())) s.text(box, (fell ? d.reasonText(st[2]) + (st.length > 3 ? "; " : "") : "") + (st.length > 3 ? st[3] : ""));
                 }
+                // [BL2] 自己选一个驱动 ZIP：系统文件选择器挑路径，装完回到这个列表里选它
+                // [BL2] pick a driver ZIP with the system file picker; once installed it shows up in the list above
+                Button zip = s.button(box, s.str(R.string.d3_driver_zip));
+                zip.setOnClickListener(v -> DriverManager.pickZip(d, () -> fill(s, picked())));
                 // (2.39) the driver manager (installed packages, install from a file, download from GitHub releases: DriverManager.java)
                 Button mgr = s.button(box, s.t("Драйверы…", "Manage drivers…"));
                 mgr.setOnClickListener(v -> new DriverManager(d, () -> fill(s, picked())).show());
@@ -340,6 +343,22 @@ final class GearPages {
                 reset.setOnClickListener(v -> { FrontMenu.Pad p = s.host.pad(); if (p != null) { p.resetLayout(); s.toast(s.t("Раскладка сброшена", "Layout reset"), false); } });
                 edit.setOnClickListener(v -> { s.dismiss(); FrontMenu f = s.host.front(); FrontMenu.Pad p = s.host.pad(); if (f != null) f.edit(); else if (p != null) p.startEdit(null); });
             }
+        };
+    }
+    // [BL2] 触控 UI 自动隐藏：开关 + 多少秒后收起（pad "pad_autohide" / "pad_autohide_s"，DoomPadView 里实现），立即生效
+    static GearSettings.Section padAutoHide() {
+        return new GearSettings.Section() {
+            CheckBox c;
+            public void build(GearSettings s, LinearLayout box) {
+                SharedPreferences cp = s.padPrefs();
+                c = s.check(box, "触控 UI 自动隐藏", cp.getBoolean("pad_autohide", false));
+                s.slider(box, cp, "无操作 %d 秒后收起", "pad_autohide_s", 2, 15, 5, s::reloadPad);
+                s.note(box, "收起后任意点一下就把控件放回来（那一下不会送进游戏）。");
+            }
+            public void save(GearSettings s, SharedPreferences.Editor game, SharedPreferences.Editor pad) {
+                pad.putBoolean("pad_autohide", c.isChecked());
+            }
+            public void after(GearSettings s) { s.reloadPad(); }
         };
     }
     // the menu language (Diablo III's gear option, now the shared "front" ui_lang the pause menu's gamepad dialog sets too): applies at once,

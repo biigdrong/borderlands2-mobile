@@ -93,6 +93,7 @@ static int lifecycle_ready(void) { pthread_once(&g_lifecycle_once, lifecycle_ini
 // writes Download/<data folder>/logs/crash.txt from it at the next start (D3: Download/Diablo3Mobile/logs/crash.txt).
 static pthread_mutex_t g_log_mu = PTHREAD_MUTEX_INITIALIZER;
 static int g_log_fd = -1;
+static int g_log_off;   // [BL2] release: 1 = no boot.log / logcat lines (the crash marker stays)
 static char g_log_path[1200], g_crash_flag[1200];
 static _Atomic int g_pump_busy;
 static char g_crash_note[384];   // the last FATAL line: copied into the crash marker (read in the signal handler, racy by design)
@@ -168,6 +169,7 @@ static void *log_pump(void *arg) {
 // dm-input, dm-vvl) comes here (CMakeLists.txt: -Wl,--wrap=__android_log_print): to logcat as before, and into boot.log.
 int __wrap___android_log_print(int prio, const char *tag, const char *fmt, ...) {
     char text[1024]; va_list a; va_start(a, fmt); vsnprintf(text, sizeof text, fmt, a); va_end(a);
+    if (g_log_off) { if (prio >= ANDROID_LOG_FATAL) snprintf(g_crash_note, sizeof g_crash_note, "[%s] FATAL: %s", tag ? tag : "?", text); return 0; }
     int r = __android_log_write(prio, tag, text);
     if (prio >= ANDROID_LOG_FATAL) snprintf(g_crash_note, sizeof g_crash_note, "[%s] FATAL: %s", tag ? tag : "?", text);
     log_file_line(tag ? tag : "?", text);
@@ -267,6 +269,21 @@ static void log_cpu(void) {
 }
 static void log_init(void) {
     static int initialized; if (initialized) return; initialized = 1;
+#ifdef DM_GAME_BL2
+    // [BL2] 日志总开关在 dm/env：DM_LOG=0 关、1 开（缺省 0 = 关）。关掉时不建 boot.log、不刷 logcat，崩溃标记照旧
+    // [BL2] the log switch lives in dm/env: DM_LOG=0 off, 1 on (default 0 = off); a closed switch writes no boot.log / logcat lines
+    int log_on = 0;
+    { char ep[1200]; snprintf(ep, sizeof ep, "%s/dm/env", g_src); FILE *ef = fopen(ep, "r");
+      if (ef) { char l[512]; while (fgets(l, sizeof l, ef)) { char *p = l; while (*p == ' ' || *p == '\t') p++;
+          if (!strncmp(p, "DM_LOG=", 7)) { log_on = atoi(p + 7); break; } } fclose(ef); } }
+    if (!log_on) {
+        g_log_off = 1;
+        snprintf(g_crash_flag, sizeof g_crash_flag, "%s/dm-crash.txt", g_files);
+        crash_set_report_hook(crash_report_hook);
+        { int nul = open("/dev/null", O_WRONLY); if (nul >= 0) { dup2(nul, 2); if (nul != 2) close(nul); } }
+        return;
+    }
+#endif
     // [D3] boot.log goes straight into Download/<data folder>/logs (next to crash.txt and logcat.txt, reachable with a file manager on
     // Android 11+, and on disk line by line even when the system kills the app), else into the runtime dir as before
     char dir[1100]; snprintf(dir, sizeof dir, "%s/logs", g_src);
@@ -398,6 +415,28 @@ static void load_env_file(const char *dir) {
     }
     fclose(fp);
 }
+// [BL2] 设置/图形写出的 ini 覆盖层：Java 在 <files|ext>/dm/romfs-overlay-extra 写一行目录（patch-gfx），这里把它排到
+// DM_ROMFS_OVERLAY 最前——它带着一份改过画质值的 Coalesced_INT.bin，排在汉化层前面才生效；文件不存在 = 没改过，什么都不做。
+// [BL2] The graphics page's ini overlay: Java writes one directory (patch-gfx) into <files|ext>/dm/romfs-overlay-extra; it is put
+// first in DM_ROMFS_OVERLAY so its edited Coalesced_INT.bin wins over the localisation layer. No file = untouched defaults.
+static void overlay_extra(void) {
+    for (int i = 0; i < 2; i++) {
+        char p[1300], line[1100];
+        snprintf(p, sizeof p, "%s/dm/romfs-overlay-extra", i ? g_ext : g_files);
+        FILE *fp = fopen(p, "r"); if (!fp) continue;
+        if (!fgets(line, sizeof line, fp)) { fclose(fp); continue; }
+        fclose(fp);
+        line[strcspn(line, "\r\n")] = 0;
+        struct stat st;
+        if (!line[0] || stat(line, &st) || !S_ISDIR(st.st_mode)) { LOG("boot: 图形覆盖层目录不在（%s：%s）", p, line); return; }
+        const char *cur = getenv("DM_ROMFS_OVERLAY");
+        char both[2500];
+        if (cur && *cur) snprintf(both, sizeof both, "%s:%s", line, cur); else snprintf(both, sizeof both, "%s", line);
+        setenv("DM_ROMFS_OVERLAY", both, 1);
+        LOG("boot: 图形覆盖层 %s（来自 %s），DM_ROMFS_OVERLAY=%s", line, p, both);
+        return;
+    }
+}
 
 JNIEXPORT jint JNICALL Java_com_xiaoboluo_d2r_DmActivity_nativeStart(JNIEnv *env, jclass cls, jstring files, jstring ext, jstring src, jstring lang) {
     (void)cls;
@@ -428,6 +467,7 @@ JNIEXPORT jint JNICALL Java_com_xiaoboluo_d2r_DmActivity_nativeStart(JNIEnv *env
     snprintf(romfs, sizeof romfs, "%s/romfs", g_src);
     snprintf(p, sizeof p, "%s/out/main.patched.bin", g_runtime);
     if (access(p, R_OK)) { snprintf(g_runtime, sizeof g_runtime, "%s/dm", g_src); LOG("boot: runtime %s", g_runtime); load_env_file(g_runtime); }
+    overlay_extra();   // [BL2] 设置/图形的一层 ini 覆盖层（下载目录里的 patch-gfx）
 #ifdef DM_GAME_DOS2
     // [DOS2] DM_ROMFS_APPDATA (1): a RomFS in the app's own external directory (Android/data/org.dos2.port/files/romfs, adb push only) is used
     // instead of Download/.../romfs. Android 11+ bind-mounts Android/data/<own package> into the app's mount namespace straight from the

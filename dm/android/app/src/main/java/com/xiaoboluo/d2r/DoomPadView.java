@@ -51,7 +51,7 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
     // alpha scaled to "gear_alpha" % of the usual, a slider in the dialog, full while pressed, same spot). Applies in controllerMode too.
     // An old saved "hidden" (2) is shown as faded.
     static final int GEAR_NORMAL = 0, GEAR_FADED = 1, GEAR_ALPHA_DEFAULT = 10;
-    static final int K_BUTTON = 0, K_STICK = 1, K_DPAD = 2, K_MENU = 3;
+    static final int K_BUTTON = 0, K_STICK = 1, K_DPAD = 2, K_MENU = 3, K_CHEAT = 4;   // K_CHEAT: [BL2] action button (writes a cheat.req), no keycode
 
     // A control. game preset: centre = (fx * W + ox * u, fy * H + oy * u), half extents (hw, hh) * u, u = dp x size; switch preset (win = true):
     // centre = (fx * W + ox * H, fy * H), half extents (hw, hh) * H x the face-button scale. A player's place / size (editor) overrides it.
@@ -62,6 +62,8 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
         int pointer = -1; float kx, ky, travel; long down; boolean onKnob; int dirBits;   // runtime: the finger, a stick's knob (px), a d-pad's held directions
         float bx = Float.NaN, by;                                                         // runtime: a floating stick's base (px) while a finger holds it
         float px = -1, py = -1, ps = 1;                                                   // the player's place (fractions of the view) and size
+        boolean removed;                                                                  // the player removed this control in the editor
+        int[] combo;                                                                      // extra keycodes sent together with this button (a combo)
         Ctl(String name, String label, int kind, int key, float fx, float fy, float ox, float oy, float hw, float hh, boolean win) {
             this.name = name; this.label = label; this.kind = kind; this.key = key; this.fx = fx; this.fy = fy; this.ox = ox; this.oy = oy; this.hw = hw; this.hh = hh; this.win = win;
         }
@@ -179,8 +181,7 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
             // right cluster: diamond X top, A right, B bottom, Y left
             ctls.add(new Ctl("x", "X", B, KeyEvent.KEYCODE_R, ABXY_FX, ABXY_FY, 0, -GAP, 26, 26, false)); ctls.add(new Ctl("a", "A", B, KeyEvent.KEYCODE_ENTER, ABXY_FX, ABXY_FY, GAP, 0, 28, 28, false));
             ctls.add(new Ctl("b", "B", B, KeyEvent.KEYCODE_ESCAPE, ABXY_FX, ABXY_FY, 0, GAP, 26, 26, false)); ctls.add(new Ctl("y", "Y", B, KeyEvent.KEYCODE_F, ABXY_FX, ABXY_FY, -GAP, 0, 26, 26, false));
-            // right thumb: FIRE (ZR, also turns the view while held) and MELEE (R3) next to it
-            Ctl fire = new Ctl("fire", "FIRE", B, KeyEvent.KEYCODE_CTRL_LEFT, 0.86f, 0.79f, 0, 0, 44, 44, false); fire.look = true; ctls.add(fire);
+            // right thumb: MELEE (R3) next to where FIRE used to be
             ctls.add(new Ctl("rs", "R3", B, KeyEvent.KEYCODE_BUTTON_THUMBR, 0.86f, 0.79f, -88, 14, 28, 28, false));
             ctls.add(new Ctl("r", "R", B, KeyEvent.KEYCODE_E, 0.84f, 0.09f, 0, 0, 26, 26, false)); ctls.add(new Ctl("zr", "ZR", B, KeyEvent.KEYCODE_CTRL_LEFT, 0.95f, 0.09f, 0, 0, 28, 28, false));
             ctls.add(new Ctl("plus", "+", B, KeyEvent.KEYCODE_TAB, 0.62f, 0.09f, 0, 0, 22, 22, false));
@@ -190,8 +191,8 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
                 ctls.add(new Ctl("dpad_down", "↓", B, KeyEvent.KEYCODE_DPAD_DOWN, DPAD_FX, DPAD_FY, 0, GAP, 24, 24, false)); ctls.add(new Ctl("dpad_left", "←", B, KeyEvent.KEYCODE_DPAD_LEFT, DPAD_FX, DPAD_FY, -GAP, 0, 24, 24, false));
             } else ctls.add(new Ctl("dpad", "", K_DPAD, 0, DPAD_FX, DPAD_FY, 0, 0, GAP + 24, GAP + 24, false));
             ctls.add(new Ctl("l", "L", B, KeyEvent.KEYCODE_Q, 0.16f, 0.09f, 0, 0, 26, 26, false)); ctls.add(new Ctl("zl", "ZL", B, KeyEvent.KEYCODE_SHIFT_LEFT, 0.05f, 0.09f, 0, 0, 28, 28, false));
+            if (DmActivity.BL2) ctls.add(new Ctl("ls", "L3", B, KeyEvent.KEYCODE_BUTTON_THUMBL, 0.09f, 0.84f, 0, 0, 28, 28, false));   // [BL2] L3 按键（替代原 AI 按钮的位置）
             ctls.add(new Ctl("minus", "-", B, KeyEvent.KEYCODE_M, 0.38f, 0.09f, 0, 0, 22, 22, false));
-            ctls.add(new Ctl("menu", "⚙", K_MENU, SETTINGS, 0.50f, 0.09f, 0, 0, 20, 20, false));
             Ctl st = new Ctl("stick_l", "", K_STICK, 0, 0.12f, 0.42f, 0, 0, STICK_R, STICK_R, false); st.clickKey = KeyEvent.KEYCODE_BUTTON_THUMBL; ctls.add(st);
         } else if (skin.theme != null) {   // nx2android's ergonomic layout
             for (PadTheme.Ctl c : skin.theme.layouts[layout]) {
@@ -225,11 +226,20 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
     private void loadPlaces() {
         SharedPreferences p = prefs();
         for (Ctl c : ctls) { c.px = c.py = -1; c.ps = 1; String v = p.getString(placeKey(c), null);
-            if (v != null) try { String[] f = v.split(";"); c.px = Float.parseFloat(f[0]); c.py = Float.parseFloat(f[1]); c.ps = Float.parseFloat(f[2]); } catch (Exception e) { c.px = c.py = -1; c.ps = 1; } }
+            if (v != null) try { String[] f = v.split(";"); c.px = Float.parseFloat(f[0]); c.py = Float.parseFloat(f[1]); c.ps = Float.parseFloat(f[2]); } catch (Exception e) { c.px = c.py = -1; c.ps = 1; }
+            c.removed = p.getBoolean("rm_" + placeKey(c), false);
+            String cb = p.getString("combo_" + placeKey(c), null); c.combo = null;
+            if (cb != null && !cb.isEmpty()) { String[] f = cb.split(","); int[] a = new int[f.length]; int n = 0;
+                for (String s : f) try { a[n++] = Integer.parseInt(s.trim()); } catch (Exception ignored) {} if (n > 0) { c.combo = new int[n]; System.arraycopy(a, 0, c.combo, 0, n); } }
+        }
     }
     private void savePlaces() {
         SharedPreferences.Editor e = prefs().edit();
-        for (Ctl c : ctls) { String k = placeKey(c); if (c.px < 0 && c.ps == 1) e.remove(k); else e.putString(k, String.format(Locale.ROOT, "%.5f;%.5f;%.4f", c.px, c.py, c.ps)); }
+        for (Ctl c : ctls) {
+            String k = placeKey(c); if (c.px < 0 && c.ps == 1) e.remove(k); else e.putString(k, String.format(Locale.ROOT, "%.5f;%.5f;%.4f", c.px, c.py, c.ps));
+            if (c.removed) e.putBoolean("rm_" + k, true); else e.remove("rm_" + k);
+            if (c.combo == null || c.combo.length == 0) e.remove("combo_" + k); else { StringBuilder b = new StringBuilder(); for (int kk : c.combo) { if (b.length() > 0) b.append(','); b.append(kk); } e.putString("combo_" + k, b.toString()); }
+        }
         e.apply();
     }
 
@@ -261,13 +271,11 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
         if (!showFps || fstats[0] <= 0) return;
         String t = String.format(Locale.ROOT, "%.0f fps  %.1f ms (max %.0f)%s", fstats[0], fstats[1], fstats[2],
             fstats[3] >= 0 ? String.format(Locale.ROOT, "  GPU %.1f", fstats[3]) : "");
-        // top left corner, clear of the rounded screen corner (cornerLeft; at least 18 dp)
-        text.setTextSize(15 * dp); text.setColor(0xd0ffffff);
+        // top left corner, clear of the rounded screen corner; green, half the old size, no background
+        text.setTextSize(7.5f * dp); text.setColor(0xff5cff5c); text.setAlpha(255);
         float y = text.getTextSize(), top = y + text.ascent();
         float left = Math.max(18 * dp, Math.max(safeLeft, cornerLeft(top)) + 6 * dp);
-        float w = text.measureText(t), x = left + w / 2;
-        fill.setColor(0x80000000); c.drawRect(0, 0, x + w / 2 + 6 * dp, y + 5 * dp, fill);
-        c.drawText(t, x, y, text);
+        c.drawText(t, left + text.measureText(t) / 2, y, text);   // the paint is centred: shift by half the width
     }
     void setControllerMode(boolean on) {
         synchronized (lock) {
@@ -279,7 +287,7 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
     }
     boolean controllerMode() { return controllerMode; }
 
-    @Override public void reloadSettings() { synchronized (lock) { reloadSettingsLocked(); } redraw(); }
+    @Override public void reloadSettings() { synchronized (lock) { reloadSettingsLocked(); } redraw(); kickHide(); }
     private void reloadSettingsLocked() {
         SharedPreferences p = prefs();
         deadzone = p.getFloat("move_dz", 0f); showFps = p.getBoolean("fps", true); removeCallbacks(fpsTick); if (showFps) postDelayed(fpsTick, 500); lookGain = p.getFloat("look", 1.0f);
@@ -290,6 +298,13 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
         gearMode = p.getInt("gear_mode", GEAR_NORMAL) == GEAR_NORMAL ? GEAR_NORMAL : GEAR_FADED; gearAlpha = Math.max(1, Math.min(100, p.getInt("gear_alpha", GEAR_ALPHA_DEFAULT)));
         opacity = Math.max(5, Math.min(100, p.getInt("opacity", OPACITY_DEFAULT))) / 100f; sizeK = Math.max(60, Math.min(160, p.getInt("size", SIZE_DEFAULT))) / 100f;
         shown = p.getBoolean("shown", true); lookOn = p.getBoolean("look_on", true); tick = p.getBoolean("tick", false);
+        autoHide = p.getBoolean("pad_autohide", false); autoHideSec = Math.max(2, Math.min(30, p.getInt("pad_autohide_s", 5)));
+        if (!autoHide) autoHidden = false;
+
+
+
+
+
         boolean sp = p.getBoolean("split", false); if (sp != split) { split = sp; if (builtFor != -2) { releaseAllLocked(); builtFor = -2; } }
         String pr = p.getString("preset", defPreset); if (!pr.equals(preset)) { preset = pr; builtFor = -2; }
         if (builtFor != -2) loadPlaces();
@@ -322,7 +337,9 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
         float qx = Math.abs(dx) - hw + rad, qy = Math.abs(dy) - hh + rad, px = Math.max(qx, 0), py = Math.max(qy, 0);
         return (float) Math.sqrt(px * px + py * py) + Math.min(Math.max(qx, qy), 0) - rad;
     }
-    private boolean visible(Ctl c) { return c.kind == K_MENU || (shown && !controllerMode); }
+    // [BL2] 自动隐藏时齿轮跟着一起收起，不再特殊对待；只有接实体手柄时保留齿轮（那时它是触屏上唯一的菜单入口）
+    // [BL2] the gear hides with everything else; only with a real controller does it stay (it is then the only touch way to the menu)
+    private boolean visible(Ctl c) { return c.kind == K_MENU && controllerMode || (shown && !controllerMode && !autoHidden && !c.removed); }
     // the control a finger going down at (x, y) takes: the nearest button / d-pad / menu whose (enlarged) shape holds it, else a stick whose grab zone
     // holds it (any: every control, for the editor)
     private Ctl hit(float x, float y, boolean any) {
@@ -363,7 +380,8 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
     }
     private void release(Ctl s) {   // a short tap on a stick's knob still presses L3 / R3
         float R = box(s)[2];
-        if (s.onKnob && s.travel < 0.5f * R && SystemClock.uptimeMillis() - s.down < 300 && s.clickKey != 0) {
+        if (s.onKnob && s.travel < 0.5f * R && SystemClock.uptimeMillis() - s.down < 300 && s.clickKey != 0
+            && !(l3Locked && s.clickKey == KeyEvent.KEYCODE_BUTTON_THUMBL)) {   // [BL2] L3 锁着时摇杆的短按不发（否则会把锁松开）
             final int k = s.clickKey; key(k, true); postDelayed(() -> key(k, false), 120);
         }
         s.pointer = -1; s.kx = s.ky = 0; s.bx = Float.NaN;
@@ -438,13 +456,15 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
     private void sendKeys() {
         Set<Integer> want = new HashSet<>();
         for (Ctl c : ctls) {
-            if (c.pointer < 0) continue;
+            if (c.pointer < 0 || c.removed) continue;
             if (c.kind == K_BUTTON && c.key != 0) want.add(c.key);
             else if (c.kind == K_DPAD) {
                 if ((c.dirBits & PadTheme.UP) != 0) want.add(KeyEvent.KEYCODE_DPAD_UP); if ((c.dirBits & PadTheme.DOWN) != 0) want.add(KeyEvent.KEYCODE_DPAD_DOWN);
                 if ((c.dirBits & PadTheme.LEFT) != 0) want.add(KeyEvent.KEYCODE_DPAD_LEFT); if ((c.dirBits & PadTheme.RIGHT) != 0) want.add(KeyEvent.KEYCODE_DPAD_RIGHT);
             }
+            if (c.combo != null) for (int kk : c.combo) want.add(kk);   // 组合键：和这个按钮的键一起按
         }
+        if (l3Locked) want.add(KeyEvent.KEYCODE_BUTTON_THUMBL);   // [BL2] L3 锁定 = 一直按住
         for (Integer k : new ArrayList<>(sent)) if (!want.contains(k)) { key(k, false); sent.remove(k); }
         boolean pressed = false;
         for (Integer k : want) if (sent.add(k)) { key(k, true); pressed = true; mapKeyPressed(k); }
@@ -458,6 +478,17 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
         float lx = 0, ly = 0, rx = 0, ry = 0;
         for (Ctl c : ctls) if (c.kind == K_STICK) { float R = box(c)[2]; float[] v = shape(c.kx / R, c.ky / R); if (c.right) { rx = v[0]; ry = v[1]; } else { lx = v[0]; ly = v[1]; } }
         if (wheelOn) { rx += wheelX; ry += wheelY; }
+        // [BL2] L3 锁定：每次从静止起步补发一次 L3 按下。游戏停步后会清掉冲刺，光靠一直按住 L3 不够。
+        // [BL2] L3 latch: re-send one L3 press on every start from standstill (the game drops the sprint when movement stops).
+        if (l3Locked) {
+            final int L3 = KeyEvent.KEYCODE_BUTTON_THUMBL;
+            boolean moving = Math.sqrt(lx * lx + ly * ly) > 0.15f;
+            if (moving && !l3Moving) {
+                sent.remove(L3); key(L3, false);
+                postDelayed(() -> { synchronized (lock) { if (l3Locked && sent.add(L3)) key(L3, true); } }, 50);
+            }
+            l3Moving = moving;
+        } else l3Moving = false;
         DmActivity.nativePadAxes(PAD_DEVICE, lx, ly, Math.max(-1, Math.min(1, rx + lookX)), Math.max(-1, Math.min(1, ry + lookY)), 0, 0, 0, 0);
     }
     // The wheel key held by any control (a button or the d-pad never carries it): look-finger travel then goes to wheelX / wheelY.
@@ -480,7 +511,54 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
 
     // ---- touches
     private int menuPtr = -1; private boolean menuMoved; private float menuX0, menuY0, menuGX, menuGY;
-    @Override public boolean onTouchEvent(MotionEvent e) { synchronized (lock) { touch(e); kickPlayout(); } redraw(); return true; }
+    // [BL2] 触控 UI 自动隐藏（gear "pad_autohide" / "pad_autohide_s"）：超过设定秒数没有触摸就把控件收起来，只留齿轮；
+    // 任意一次点按先把它们放回来（那一下只用于唤回，不喂给游戏）。
+    // [BL2] Auto-hide of the on-screen controls (gear "pad_autohide" / "pad_autohide_s"): after the chosen idle seconds only the gear stays;
+    // any tap brings everything back (that tap only reveals, it is not fed to the game).
+    private boolean autoHide; private int autoHideSec = 5; private boolean autoHidden;
+    // [BL2] L3 锁定：点一下当长按（一直按住左摇杆键），再点一下松开；每次新开 App 默认不锁
+    // [BL2] L3 latch: one tap holds the left-stick button down, the next one releases it; off on every new app run
+    private boolean l3Locked;
+    private boolean l3Moving;   // [BL2] 左摇杆上一帧是否在移动：锁定时每次起步补发一次 L3 按下（停步后游戏会清掉冲刺）
+
+
+
+
+
+
+
+
+    private final Runnable hideTask = new Runnable() {
+        public void run() {
+            boolean hide;
+            synchronized (lock) { hide = autoHide && !edit && !autoHidden; if (hide) { releaseAllLocked(); autoHidden = true; } }
+            if (hide) redraw();
+        }
+    };
+    private void kickHide() {
+        removeCallbacks(hideTask);
+        if (autoHide && !edit) postDelayed(hideTask, Math.max(2, autoHideSec) * 1000L);
+    }
+    @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); kickHide(); }
+    // [BL2] 外接手柄时：控件不隐藏、照常可用，只强制 10 秒自动收起；拔掉后恢复玩家自己的自动隐藏设置
+    // [BL2] With a real controller: the controls stay usable, only forced to auto-hide after 10 idle seconds; unplugging restores the player's setting
+    public void controllerAutoHide(boolean on) {
+        if (!DmActivity.BL2) { setControllerMode(on); return; }
+        synchronized (lock) {
+            if (on) { autoHide = true; autoHideSec = 10; }
+            else reloadSettings();
+        }
+        kickHide(); redraw();
+    }
+    @Override public boolean onTouchEvent(MotionEvent e) {
+        if (autoHidden) {
+            if (e.getActionMasked() == MotionEvent.ACTION_DOWN) { synchronized (lock) { autoHidden = false; } redraw(); kickHide(); }
+            return true;   // this tap only brings the controls back
+        }
+        synchronized (lock) { touch(e); kickPlayout(); }
+        redraw(); kickHide();
+        return true;
+    }
     private void touch(MotionEvent e) {
         ensureBuilt();
         if (edit) { editTouch(e); return; }
@@ -494,6 +572,8 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
                 the active controller in front_android.c) */ }
             else if (c != null && c.kind == K_STICK && c.pointer < 0) { if (floats(c)) grabFloat(c, id, x, y); else grab(c, id, x, y); }
             else if (c != null && c.kind == K_DPAD && c.pointer < 0) { c.pointer = id; dpadAt(c, x, y); }
+            else if (c != null && c.kind == K_BUTTON && "ls".equals(c.name)) { l3Locked = !l3Locked; l3Moving = false; }   // [BL2] L3：点一下锁住（长按），再点一下松开
+            else if (c != null && c.kind == K_CHEAT && c.pointer < 0) { c.pointer = id; }   // [BL2] AI 按钮：按下高亮，抬起时发命令
             else if (c != null && c.kind == K_BUTTON && c.pointer < 0) { c.pointer = id; if (c.look && fireLook.pointer < 0) lookStart(fireLook, id, x, y);
                 if (wheelKey != 0 && c.key == wheelKey && wheelLook.pointer < 0) lookStart(wheelLook, id, x, y); }
             else if (c == null && floatOn && (ms = moveCtl()) != null && ms.pointer < 0 && visible(ms) && inFloatZone(ms, x, y)) grabFloat(ms, id, x, y);   // [issue #40]
@@ -521,6 +601,7 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
             for (Ctl c : ctls) if (c.pointer >= 0 && (c.pointer == id || all)) {
                 if (c.kind == K_STICK) release(c);
                 else if (c.kind == K_MENU) { if (menuMoved) savePlaces(); else if (a != MotionEvent.ACTION_CANCEL && c.pointer == id) post(this::openMenu); c.pointer = -1; menuPtr = -1; }
+                else if (c.kind == K_CHEAT) { if (a != MotionEvent.ACTION_CANCEL && c.pointer == id) fireAlly(); c.pointer = -1; }
                 else { c.pointer = -1; c.dirBits = 0; }
             }
             if (id == look.pointer || all) look.pointer = -1;
@@ -531,17 +612,23 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
         }
         if (!controllerMode) { updateWheel(); sendKeys(); axes(); }
     }
+    // [BL2] AI 按钮：把准星目标变成队友（写一行 cheat.req 的 ally，原生层在出图线程执行）
+    private void fireAlly() {
+        android.content.Context c = getContext();
+        if (c instanceof android.app.Activity) Bl2Cheat.send((android.app.Activity) c, "ally");
+    }
     private void menuDrag(Ctl c, float x, float y) {
         if (!menuMoved && Math.hypot(x - menuX0, y - menuY0) < DRAG_SLOP * getHeight()) return;
         menuMoved = true; c.px = Math.max(0, Math.min(1, (x + menuGX) / getWidth())); c.py = Math.max(0, Math.min(1, (y + menuGY) / getHeight()));
     }
 
     // ---- the layout editor (from Xenoblade 3's front end)
-    private boolean edit; private Ctl edSel; private int edPtr = -1, edPtr2 = -1, edBtnDown = -1; private float edGX, edGY, edD0, edS0; private float[][] edSaved;
+    private boolean edit; private Ctl edSel; private int edPtr = -1, edPtr2 = -1, edBtnDown = -1; private float edGX, edGY, edD0, edS0; private float[][] edSaved; private boolean[] edRmSaved; private int[][] edComboSaved;
     @Override public void startEdit(Runnable done) {
         synchronized (lock) {
         ensureBuilt(); releaseAllLocked(); edit = true; edSel = null; edPtr = edPtr2 = -1; editDone = done;
-        edSaved = new float[ctls.size()][]; for (int i = 0; i < ctls.size(); i++) { Ctl c = ctls.get(i); edSaved[i] = new float[] {c.px, c.py, c.ps}; }
+        edSaved = new float[ctls.size()][]; edRmSaved = new boolean[ctls.size()]; edComboSaved = new int[ctls.size()][];
+        for (int i = 0; i < ctls.size(); i++) { Ctl c = ctls.get(i); edSaved[i] = new float[] {c.px, c.py, c.ps}; edRmSaved[i] = c.removed; edComboSaved[i] = c.combo; }
         android.util.Log.i("dm", "[java] layout editor open (" + preset + ")");
         }
         redraw();
@@ -550,29 +637,67 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
     @Override public void endEdit(boolean save) {
         synchronized (lock) {
         if (!edit) return;
-        if (save) savePlaces(); else for (int i = 0; i < ctls.size() && i < edSaved.length; i++) { Ctl c = ctls.get(i); c.px = edSaved[i][0]; c.py = edSaved[i][1]; c.ps = edSaved[i][2]; }
+        if (save) savePlaces(); else for (int i = 0; i < ctls.size() && i < edSaved.length; i++) { Ctl c = ctls.get(i); c.px = edSaved[i][0]; c.py = edSaved[i][1]; c.ps = edSaved[i][2]; c.removed = edRmSaved[i]; c.combo = edComboSaved[i]; }
         edit = false; edSel = null;
         }
         redraw();
+        kickHide();   // [BL2] the auto-hide clock starts again once the editor is closed
         android.util.Log.i("dm", "[java] layout editor " + (save ? "saved" : "cancelled"));
         Runnable d = editDone; editDone = null; if (d != null) d.run();
     }
-    @Override public void resetLayout() { synchronized (lock) { ensureBuilt(); for (Ctl c : ctls) { c.px = c.py = -1; c.ps = 1; } savePlaces(); } redraw(); }
-    private static final int ED_BUTTONS = 6;
-    private RectF edButton(int k) {   // the toolbar at the top middle: - + Grouped/Separate Reset Cancel Save
-        float H = getHeight(), bw = H * 0.17f, bh = H * 0.085f, gap = H * 0.02f, total = ED_BUTTONS * bw + (ED_BUTTONS - 1) * gap, x0 = (getWidth() - total) / 2, y0 = H * 0.035f;
+    @Override public void resetLayout() { synchronized (lock) { ensureBuilt(); for (Ctl c : ctls) { c.px = c.py = -1; c.ps = 1; c.removed = false; c.combo = null; } savePlaces(); } redraw(); }
+    private static final int ED_BUTTONS = 9;
+    static final float ED_GRID_DIV = 40f;   // 方形网格：格边长 = 屏高 / 40
+    private RectF edButton(int k) {   // the toolbar: − + 成组/单独 添加 移除 组合 重置 取消 保存
+        float H = getHeight(), bw = H * 0.105f, bh = H * 0.075f, gap = H * 0.012f, total = ED_BUTTONS * bw + (ED_BUTTONS - 1) * gap, x0 = (getWidth() - total) / 2, y0 = H * 0.03f;
         return new RectF(x0 + k * (bw + gap), y0, x0 + k * (bw + gap) + bw, y0 + bh);
     }
     private int edButtonAt(float x, float y) { for (int k = 0; k < ED_BUTTONS; k++) if (edButton(k).contains(x, y)) return k; return -1; }
+    // [BL2] 编辑器：添加（把移除过的控件放回来）、组合键（给选中的按钮加同时按的键）
+    private void edAddDialog() {
+        if (!(getContext() instanceof android.app.Activity)) return;
+        final List<Ctl> gone = new ArrayList<>();
+        for (Ctl c : ctls) if (c.removed && c.kind != K_MENU) gone.add(c);
+        if (gone.isEmpty()) { toast("没有可添加的按键"); return; }
+        String[] names = new String[gone.size()];
+        for (int i = 0; i < gone.size(); i++) names[i] = gone.get(i).label;
+        new android.app.AlertDialog.Builder(getContext()).setTitle("添加按键")
+            .setItems(names, (d, which) -> { synchronized (lock) { gone.get(which).removed = false; } redraw(); })
+            .setNegativeButton("取消", null).show();
+    }
+    private static final int[] COMBO_KEYS = {KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_ESCAPE, KeyEvent.KEYCODE_R, KeyEvent.KEYCODE_F,
+        KeyEvent.KEYCODE_Q, KeyEvent.KEYCODE_E, KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_CTRL_LEFT,
+        KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+        KeyEvent.KEYCODE_BUTTON_THUMBL, KeyEvent.KEYCODE_BUTTON_THUMBR, KeyEvent.KEYCODE_TAB, KeyEvent.KEYCODE_M};
+    private static final String[] COMBO_NAMES = {"A", "B", "X", "Y", "L", "R", "ZL", "ZR", "十字上", "十字下", "十字左", "十字右", "L3", "R3", "+", "-"};
+    private void edComboDialog() {
+        if (edSel == null || edSel.kind != K_BUTTON || !(getContext() instanceof android.app.Activity)) { toast("先选中一个按键"); return; }
+        final boolean[] on = new boolean[COMBO_KEYS.length];
+        if (edSel.combo != null) for (int kk : edSel.combo) for (int i = 0; i < COMBO_KEYS.length; i++) if (COMBO_KEYS[i] == kk) on[i] = true;
+        final Ctl sel = edSel;
+        new android.app.AlertDialog.Builder(getContext()).setTitle("组合键（同时按）")
+            .setMultiChoiceItems(COMBO_NAMES, on, (d, which, checked) -> on[which] = checked)
+            .setPositiveButton("确定", (d, w) -> { synchronized (lock) {
+                List<Integer> l = new ArrayList<>(); for (int i = 0; i < on.length; i++) if (on[i]) l.add(COMBO_KEYS[i]);
+                if (l.isEmpty()) sel.combo = null; else { sel.combo = new int[l.size()]; for (int i = 0; i < l.size(); i++) sel.combo[i] = l.get(i); }
+            } redraw(); })
+            .setNegativeButton("取消", null).show();
+    }
+    private void toast(String s) { android.widget.Toast.makeText(getContext(), s, android.widget.Toast.LENGTH_SHORT).show(); }
     // Grouped / Separate in the editor: the places so far are saved, the controls rebuilt, and Cancel goes back to the new set as it is now
     private void edToggleSplit() {
         savePlaces(); split = !split; prefs().edit().putBoolean("split", split).apply();
         android.util.Log.i("dm", "[java] layout editor: " + (split ? "every button on its own" : "ABXY and d-pad grouped"));
         build(builtFor); edSel = null; edGroup.clear();
-        edSaved = new float[ctls.size()][]; for (int i = 0; i < ctls.size(); i++) { Ctl c = ctls.get(i); edSaved[i] = new float[] {c.px, c.py, c.ps}; }
+        edSaved = new float[ctls.size()][]; edRmSaved = new boolean[ctls.size()]; edComboSaved = new int[ctls.size()][];
+        for (int i = 0; i < ctls.size(); i++) { Ctl c = ctls.get(i); edSaved[i] = new float[] {c.px, c.py, c.ps}; edRmSaved[i] = c.removed; edComboSaved[i] = c.combo; }
     }
     private void edResize(Ctl c, float s) { c.ps = Math.max(0.5f, Math.min(2.5f, s)); }
-    private void edPlace(Ctl c, float cx, float cy) { c.px = Math.max(0, Math.min(1, cx / getWidth())); c.py = Math.max(0, Math.min(1, cy / getHeight())); }
+    private void edPlace(Ctl c, float cx, float cy) {   // 吸附到方形网格
+        float W = Math.max(1, getWidth()), H = Math.max(1, getHeight()), cell = H / ED_GRID_DIV;
+        float x = Math.round(Math.max(0, Math.min(W, cx)) / cell) * cell, y = Math.round(Math.max(0, Math.min(H, cy)) / cell) * cell;
+        c.px = Math.max(0, Math.min(1, x / W)); c.py = Math.max(0, Math.min(1, y / H));
+    }
     // A group (c.group) is edited as one: the members' centres and sizes when the finger went down, moved by the same offset or scaled about their centre
     private final List<Ctl> edGroup = new ArrayList<>(); private float[][] edStart = new float[0][]; private float edCX, edCY;
     private void edGrab(Ctl sel) {
@@ -615,8 +740,11 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
             if (bt >= 0 && a != MotionEvent.ACTION_CANCEL && bt == edButtonAt(e.getX(ai), e.getY(ai))) {
                 if (bt == 0 || bt == 1) { float f = bt == 1 ? 1.1f : 1 / 1.1f; if (edSel != null) { edGrab(edSel); edScaleGroup(f); } else for (Ctl c : ctls) edResize(c, c.ps * f); }
                 else if (bt == 2) edToggleSplit();
-                else if (bt == 3) { for (Ctl c : ctls) { c.px = c.py = -1; c.ps = 1; } edSel = null; }
-                else if (bt == 4) { endEdit(false); return; }
+                else if (bt == 3) edAddDialog();
+                else if (bt == 4) { if (edSel != null) { edSel.removed = true; edSel = null; } }
+                else if (bt == 5) edComboDialog();
+                else if (bt == 6) { for (Ctl c : ctls) { c.px = c.py = -1; c.ps = 1; c.removed = false; c.combo = null; } edSel = null; }
+                else if (bt == 7) { endEdit(false); return; }
                 else { endEdit(true); return; }
             }
             redraw();
@@ -648,7 +776,7 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
         if (builtFor != wantLayout()) { post(() -> { synchronized (lock) { ensureBuilt(); } redraw(); }); return PadSurface.NOT_READY; }   // the controls are built on the UI thread
         long s = 17;
         s = s * 31 + w; s = s * 31 + ht; s = s * 31 + builtFor; s = s * 31 + ctls.size();
-        s = s * 31 + ((edit ? 1 : 0) | (controllerMode ? 2 : 0) | (shown ? 4 : 0) | (showFps ? 8 : 0) | (split ? 16 : 0) | gearMode << 5);
+        s = s * 31 + ((edit ? 1 : 0) | (controllerMode ? 2 : 0) | (shown ? 4 : 0) | (showFps ? 8 : 0) | (split ? 16 : 0) | gearMode << 5 | (autoHidden ? 128 : 0) | (l3Locked ? 256 : 0));
         s = s * 31 + Float.floatToIntBits(opacity); s = s * 31 + Float.floatToIntBits(sizeK); s = s * 31 + gearAlpha;
         s = s * 31 + skinPack.hashCode(); s = s * 31 + preset.hashCode();
         s = s * 31 + (edSel == null ? -1 : ctls.indexOf(edSel)); s = s * 31 + edBtnDown;
@@ -667,7 +795,7 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
         skin.select(skinPack, PadSkin.layoutFor(getWidth(), getHeight()));
         if (edit) c.drawColor(0x55000000);
         for (Ctl k : ctls) if (k.kind != K_MENU && (edit || visible(k))) drawCtl(c, k);
-        for (Ctl k : ctls) if (k.kind == K_MENU) drawCtl(c, k);
+        for (Ctl k : ctls) if (k.kind == K_MENU && (edit || visible(k))) drawCtl(c, k);   // [BL2] 齿轮也按同一规则隐藏
         if (edit) drawEditor(c);
     }
     private float alphaOf(Ctl k) {
@@ -684,8 +812,21 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
         // the game preset's round buttons: a skin's shoulder (wide) sprites get a pill-shaped box of the same height
         float bw = b[2], bh = b[3];
         if (!k.win && (k.name.equals("l") || k.name.equals("r") || k.name.equals("zl") || k.name.equals("zr") || k.kind == K_MENU)) bw = b[2] * 1.6f;
-        if (skin.draw(c, k.name, b[0], b[1], bw, bh, held, k.dirBits, kx, ky, sa, getHeight())) return;
+        if (skin.draw(c, k.name, b[0], b[1], bw, bh, held, k.dirBits, kx, ky, sa, getHeight())) {
+            if (l3Locked && "ls".equals(k.name)) drawLock(c, b[0], b[1], Math.min(b[2], b[3]), al);
+            return;
+        }
         drawClassic(c, k, b, al, held);
+        if (l3Locked && "ls".equals(k.name)) drawLock(c, b[0], b[1], Math.min(b[2], b[3]), al);
+    }
+    // [BL2] L3 锁定标记：按钮右上角的小锁
+    private void drawLock(Canvas c, float x, float y, float r, float al) {
+        float s = Math.max(7 * dp, r * 0.42f), cx = x + r * 0.62f, cy = y - r * 0.62f;
+        int col = 0xffe8c040, a = Math.round(0xff * al);
+        line.setStrokeWidth(Math.max(1.5f, s * 0.22f)); line.setColor(col); line.setAlpha(a);
+        fill.setColor(col); fill.setAlpha(a);
+        c.drawArc(cx - s * 0.55f, cy - s * 1.2f, cx + s * 0.55f, cy + s * 0.25f, 180, 180, false, line);
+        c.drawRoundRect(new RectF(cx - s * 0.75f, cy - s * 0.1f, cx + s * 0.75f, cy + s * 1.0f), s * 0.22f, s * 0.22f, fill);
     }
     private void drawClassic(Canvas c, Ctl k, float[] b, float al, boolean held) {
         float x = b[0], y = b[1];
@@ -705,7 +846,7 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
                 c.drawText(lab[i], x + d[i][0], y + d[i][1] + text.getTextSize() * 0.35f, text); }
             return;
         }
-        int base = held ? 0x80ffffff : (k.look ? 0x40ff6040 : 0x30ffffff);
+        int base = held ? 0x80ffffff : (k.kind == K_CHEAT ? 0x45ffb347 : (k.look ? 0x40ff6040 : 0x30ffffff));   // [BL2] AI 按钮染成橙色，好认
         fill.setColor(base); fill.setAlpha(Math.round(((base >>> 24) & 0xff) * al));
         text.setTextSize(Math.max(10 * dp, Math.min(15 * dp * sizeK, Math.min(b[2], b[3]) * 0.75f)));
         if (b[2] == b[3]) { c.drawCircle(x, y, b[2], fill); c.drawCircle(x, y, b[2], line); }
@@ -713,9 +854,18 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
         c.drawText(k.label, x, y + text.getTextSize() * 0.35f, text);
     }
     private void drawEditor(Canvas c) {
-        boolean ru = Ui.ru(getContext());
-        String[] names = ru ? new String[] {"−", "+", split ? "Раздельно" : "Группами", "Сброс", "Отмена", "Сохранить"} : new String[] {"−", "+", split ? "Separate" : "Grouped", "Reset", "Cancel", "Save"};
-        text.setTextSize(getHeight() * 0.04f); text.setColor(0xffffffff);
+        String[] names = {"−", "+", split ? "单独" : "成组", "添加", "移除", "组合", "重置", "取消", "保存"};
+        // 方形网格：格边长 = 屏高 / 40
+        float cell = getHeight() / ED_GRID_DIV;
+        line.setStrokeWidth(Math.max(1, 1 * dp));
+        line.setColor(0xffffffff); line.setAlpha(0x30);
+        for (float x = cell; x < getWidth(); x += cell) c.drawLine(x, 0, x, getHeight(), line);
+        for (float y = cell; y < getHeight(); y += cell) c.drawLine(0, y, getWidth(), y, line);
+        line.setColor(0xff7fe3f0); line.setAlpha(0x70); line.setStrokeWidth(Math.max(1, 1.5f * dp));
+        c.drawRect(0, 0, getWidth(), getHeight(), line);   // 边框，确认网格层在画
+        line.setAlpha(255);
+        line.setStrokeWidth(1.5f * dp);
+        text.setTextSize(getHeight() * 0.038f); text.setColor(0xffffffff); text.setAlpha(255);
         for (int k = 0; k < ED_BUTTONS; k++) {
             RectF r = edButton(k); fill.setColor(k == edBtnDown ? 0xff1fb6c9 : k == ED_BUTTONS - 1 ? 0xe0157c8a : 0xd0202833); line.setColor(0xff7fe3f0); line.setStrokeWidth(1.5f * dp);
             float rad = r.height() / 2; c.drawRoundRect(r, rad, rad, fill); c.drawRoundRect(r, rad, rad, line);
@@ -728,8 +878,7 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
             c.drawRoundRect(new RectF(l - 4 * dp, t - 4 * dp, r + 4 * dp, bt + 4 * dp), 12 * dp, 12 * dp, line); }
         line.setStrokeWidth(2 * dp);
         text.setTextSize(getHeight() * 0.032f); text.setAlpha(220);
-        c.drawText(ru ? (split ? "Тяните контрол пальцем (каждая кнопка отдельно)" : "Тяните контрол пальцем (ромб ABXY и крестовина — целиком)") + ", второй палец — размер; −/+ без выбора меняют все"
-                      : (split ? "Drag a control (every button on its own)" : "Drag a control (the ABXY diamond and the d-pad move as one)") + "; a second finger resizes it; − / + with none chosen resize all",
+        c.drawText("拖动控件移动（吸附网格）；第二根手指改大小；−/+ 未选中时改全部；添加/移除按钮；组合键给选中的按钮加同时按的键",
             getWidth() / 2f, getHeight() * 0.18f, text);
     }
 }

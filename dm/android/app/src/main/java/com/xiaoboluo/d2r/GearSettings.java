@@ -59,7 +59,28 @@ final class GearSettings {
     // ---- texts
     String s(String key, Object... args) { return GearText.s(a, key, args); }
     String str(int res, Object... args) { return args.length == 0 ? ui.getString(res) : ui.getString(res, args); }
-    String t(String ru, String en) { return Ui.t(a, ru, en); }
+    // This port is Chinese only: the section texts built from literals (GearPages) are Chinese whatever the phone's language is (the English
+    // literal of the call site is the key; an unknown one falls back to English, so add a row when adding a text).
+    private static final String[][] ZH = {
+        {"Manage drivers…", "管理驱动…"},
+        {"Switch mode", "Switch 模式"},
+        {"Docked (TV)", "主机（TV）"},
+        {"Handheld", "掌机"},
+        {"Switches at once, as a Switch put in its dock; the choice is kept", "立即切换，等同把 Switch 放进底座；选择会被保留"},
+        {"The mode did not switch", "模式未切换"},
+        {"Picture shape:", "画面形状："},
+        {"On-screen controls", "屏幕控件"},
+        {"Controls' opacity: %d%%", "控件不透明度：%d%%"},
+        {"Controls' size: %d%%", "控件大小：%d%%"},
+        {"Edit the layout…", "编辑布局…"},
+        {"Reset the layout", "重置布局"},
+        {"Layout reset", "布局已重置"},
+        {"Menu language", "菜单语言"},
+    };
+    String t(String ru, String en) {
+        for (String[] z : ZH) if (z[0].equals(en)) return z[1];
+        return en;
+    }
     // "<label> (applies immediately)" / "<label> (applies on next launch)", in the locale's own punctuation (gear_label_fmt)
     String when(String label, boolean now) { return s("gear_label_fmt", label, s(now ? "gear_when_now" : "gear_when_next")); }
     String whenKey(String key, boolean now) { return when(s(key), now); }

@@ -36,6 +36,15 @@ import java.util.Locale;
 final class VkDrivers {
     static final String MANIFEST_URL = "https://raw.githubusercontent.com/Desm0nt/doom-port/main/drivers/manifest.json";
     static final String SOURCES_URL = "https://raw.githubusercontent.com/Desm0nt/doom-port/main/drivers/sources.json";
+    // GitHub mirrors tried in order when a direct request fails (China: github.com release assets and raw.githubusercontent.com are often
+    // unreachable). Prefix form: <mirror><full url>. Applies to the manifest, its packages and the extra repositories below.
+    static final String[] GH_MIRRORS = { "https://ghproxy.net/", "https://ghfast.top/" };
+    // Extra GitHub repositories whose newest release package is downloaded like a manifest entry (the driver list then offers it).
+    // { repository, release filter (case-insensitive regex over tag + title + body), asset filter, package folder name ("" = asset base name) }
+    static final String[][] EXTRA_REPOS = {
+        { "StevenMXZ/Adreno-Tools-Drivers", "(?i)qualcomm", "(?i)^(?!.*(linux|wayland)).*\\.zip$", "" },
+        { "StevenMXZ/Adreno-Tools-Drivers", "(?i)turnip|gen8", "(?i)^(?!.*(linux|wayland)).*\\.zip$", "" },
+    };
     static final String DEFAULT_DRIVER = "turnip27", DRIVER_A710 = "turnip27-a710", DRIVER_A8XX = "turnip27-a8xx";
     static final int GUARD_STRIKES = 2;
     static final String ORIGIN = ".dm_origin";
@@ -61,6 +70,9 @@ final class VkDrivers {
         Os.setenv("DM_NATIVE_LIB_DIR", a().getApplicationInfo().nativeLibraryDir, true);
         File drivers = dir();
         Os.setenv("DM_DRIVERS_DIR", drivers.getAbsolutePath(), true);
+        // [BL2] 第三方（开源）驱动：只认数据目录里的驱动包和玩家自己选的 ZIP，不复制内置包、不联网拉清单
+        // [BL2] third-party (open-source) drivers: only the packages in the data folder and the ZIPs the player picks, no bundled ones, no network
+        if (DmActivity.BL2) { File imp = host.driverImportDir(); if (imp != null) importDrivers(imp, drivers); return; }
         extractBundled(drivers);                        // the APK's packages (Turnip default + experimental ones, assets/drivers/<name>/)
         File imp = host.driverImportDir(); if (imp != null) importDrivers(imp, drivers);   // <data folder>/drivers (DOOM: GameFolder, issue #11)
         if (host.driverManifestUrl() != null) updateInBackground(drivers);   // other packages from the repository's drivers/manifest.json when online
@@ -458,6 +470,18 @@ final class VkDrivers {
         String[] f = s.trim().split("\t", 2); return f.length == 2 ? f : new String[] {f[0], ""};
     }
     static byte[] httpGet(String url, int max) throws IOException {
+        try { return httpGetOnce(url, max); }
+        catch (IOException first) {   // GitHub unreachable (China): the mirrors take the same URL as a prefix
+            if (url.startsWith("https://github.com/") || url.startsWith("https://raw.githubusercontent.com/") || url.startsWith("https://api.github.com/")) {
+                for (String m : GH_MIRRORS) {
+                    try { byte[] d = httpGetOnce(m + url, max); android.util.Log.i("dm", "driver download via " + m + " ok (" + d.length + " bytes)"); return d; }
+                    catch (IOException e) { android.util.Log.i("dm", "driver mirror " + m + ": " + e); }
+                }
+            }
+            throw first;
+        }
+    }
+    static byte[] httpGetOnce(String url, int max) throws IOException {
         for (int hop = 0; hop < 5; hop++) {   // GitHub release assets redirect to another host
             java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
             c.setConnectTimeout(10000); c.setReadTimeout(30000); c.setInstanceFollowRedirects(false);
@@ -585,6 +609,46 @@ final class VkDrivers {
                     android.util.Log.i("dm", "driver " + name + ": downloaded (" + zip.length + " bytes)");
                 }
             } catch (Exception e) { android.util.Log.i("dm", "driver update skipped: " + e); }
+            try { updateFromRepos(dir, removed); } catch (Exception e) { android.util.Log.i("dm", "driver repos skipped: " + e); }
         }, "dm-driver-update").start();
+    }
+    // The extra repositories (EXTRA_REPOS): each rule takes the newest release whose tag / title / body matches, the first matching asset that
+    // is not a glibc (Linux / Wayland) build, and installs it as <dir>/<asset base name> when that package is missing. Sources are listed by
+    // release (the GitHub API without a token: 60 requests an hour, two rules a start), the asset comes from browser_download_url (the
+    // mirrors of httpGet cover China). A package whose meta.json says it is for another GPU or a newer Android is removed again.
+    private void updateFromRepos(File dir, java.util.Set<String> removed) {
+        for (String[] spec : EXTRA_REPOS) {
+            try {
+                byte[] raw = httpGet("https://api.github.com/repos/" + spec[0] + "/releases?per_page=10", 1 << 20);
+                org.json.JSONArray rel = new org.json.JSONArray(new String(raw, "UTF-8"));
+                boolean done = false;
+                for (int i = 0; i < rel.length() && !done; i++) {
+                    org.json.JSONObject r = rel.getJSONObject(i);
+                    String tag = r.optString("tag_name", "");
+                    String hay = tag + " " + r.optString("name", "") + " " + r.optString("body", "");
+                    if (!hay.matches("(?s).*(?:" + spec[1] + ").*")) continue;
+                    org.json.JSONArray assets = r.optJSONArray("assets"); if (assets == null) continue;
+                    for (int a = 0; a < assets.length(); a++) {
+                        org.json.JSONObject as = assets.getJSONObject(a);
+                        String an = as.optString("name", "");
+                        if (!an.matches(spec[2])) continue;
+                        String name = spec[3].isEmpty() ? an.replaceAll("(?i)\\.zip$", "") : spec[3];
+                        if (!name.matches("[A-Za-z0-9._-]+") || name.startsWith(".")) break;
+                        if (hasDriverLib(new File(dir, name)) || removed.contains(name)) { done = true; break; }   // already installed / deleted by the player
+                        String fam = familyWord(name + " " + r.optString("name", "") + " " + r.optString("body", ""));
+                        if (!familyFits(fam)) { android.util.Log.i("dm", "driver " + name + ": for " + fam + ", not this GPU (" + phoneFamily() + "), not downloaded"); done = true; break; }
+                        byte[] zip = httpGet(as.getString("browser_download_url"), 64 << 20);
+                        unzipDriver(new java.io.ByteArrayInputStream(zip), new File(dir, name));
+                        org.json.JSONObject meta = null;
+                        try { meta = new org.json.JSONObject(readSmall(new File(new File(dir, name), "meta.json"))); } catch (Exception ignored) { }
+                        String why = packageProblem(name, meta);
+                        if (why != null) { deleteDriverTree(new File(dir, name)); android.util.Log.i("dm", "driver " + name + ": removed, not for this phone (" + why + ")"); done = true; break; }
+                        writeOrigin(new File(dir, name), "download", spec[0] + " " + tag);
+                        android.util.Log.i("dm", "driver " + name + ": downloaded from " + spec[0] + " " + tag + " (" + zip.length + " bytes)");
+                        done = true; break;
+                    }
+                }
+            } catch (Exception e) { android.util.Log.i("dm", "driver repo " + spec[0] + " skipped: " + e); }
+        }
     }
 }

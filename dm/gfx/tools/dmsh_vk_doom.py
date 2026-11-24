@@ -42,7 +42,7 @@ _SB_D2R = "{'vs': 0x110, 'cs': 0x310, 'ps': 0x510}.get(stage)"
 _SB_DOOM = "{'vs': 0x110, 'gs': 0x410, 'cs': 0x310, 'ps': 0x510}.get(stage)"
 NS = {'__name__': 'dmsh_vk_doom_ns'}
 exec('import os, re, sys, json, struct, hashlib, shutil, subprocess, tempfile, collections', NS)
-WANT_FUNCS = {'helper_has_subgroup', 'job_for', 'insts', 'rewrite', 'add_format_caps', 'spirv_info', 'image_desc', 'decode_tex', 'export'}
+WANT_FUNCS = {'helper_has_subgroup', 'job_for', 'vertex_ab', 'insts', 'rewrite', 'add_format_caps', 'spirv_info', 'image_desc', 'decode_tex', 'export'}
 WANT_CONST = {'STAGE_NO', 'TEX_BASE', 'SAMP_BASE', 'IMG_BASE'}
 _got = set()
 for node in ast.parse(_src).body:

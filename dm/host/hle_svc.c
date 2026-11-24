@@ -389,7 +389,8 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
         else if (size < g_heap_cur) rc = svc_mprotect(g_heap + size, g_heap_cur - size, PROT_NONE, "SetHeapSize");
         if (rc) { LOG("【红】SetHeapSize %#zx: mprotect errno=%d: ResultOutOfMemory", size, rc); regs[0] = 0xD001; return 0; }   // was ignored: the guest then faulted in its "new" heap
         if (g_flag.svc) LOG("SetHeapSize %#zx -> base %p mprotect=%d errno=%d", size, g_heap, rc, errno);
-        { static int said; if (!said && size) { said = 1; LOG("SetHeapSize：首次设堆成功 %zu MB（应用内存池 %llu MB − 映像 %zu MB；此前被拒 %d 次）", size >> 20, (unsigned long long)(app_pool() >> 20), image_bytes() >> 20, g_heap_rejects); } }
+        { static int said; if (!said && size) { said = 1; LOG("SetHeapSize：首次设堆成功 %zu MB（应用内存池 %llu MB − 映像 %zu MB；此前被拒 %d 次）", size >> 20, (unsigned long long)(app_pool() >> 20), image_bytes() >> 20, g_heap_rejects); }
+          else if (size > g_heap_cur + (8u << 20)) LOG("SetHeapSize：堆增长 %zu MB → %zu MB", g_heap_cur >> 20, size >> 20); }
         g_heap_cur = size;
         regs[0] = 0; regs[1] = (uint64_t)g_heap; return 0;
     }
@@ -595,6 +596,7 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
         { void dm_nvn_trace_dump(void) __attribute__((weak)); if (nb == 1 && dm_nvn_trace_dump) dm_nvn_trace_dump(); }   // DM_NVN_TRACE: the NVN calls before an abort
 #endif
         if (regs[0] & 0x80000000ull) return 0;   // 仅通知，可继续 | notification only, can continue
+        fflush(NULL);                            // [BL2] keep the red line that led here: stderr is buffered and _exit drops it
         _exit(42);
     }
     case 0x1E: if (g_tick_mode == 1) { regs[0] = 0; regs[1] = dm_tick_read(); return 0; }   // [NR-24] DM_NR_GATE_TICK=1: the same tick domain as the clock gates (DOS2's sdk has no svc 0x1E)

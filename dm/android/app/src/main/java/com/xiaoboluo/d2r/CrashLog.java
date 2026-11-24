@@ -94,6 +94,7 @@ final class CrashLog {
     private static Process liveLogcat;
     static synchronized void startLiveLogcat(Context c) {
         if (liveLogcat != null) return;
+        if (!logOn(c)) return;   // [BL2] 日志开关 dm/env 的 DM_LOG=0：不写 logcat.txt（开关保留，改 1 即恢复）
         File d = dir(c), f = new File(d, "logcat.txt"), prev = new File(d, "logcat.prev.txt");
         if (f.isFile()) { prev.delete(); if (!f.renameTo(prev)) f.delete(); }
         new File(d, "logcat.txt.1").delete();
@@ -103,6 +104,19 @@ final class CrashLog {
         } catch (IOException e) { android.util.Log.w("dm", "live logcat: " + e); }
     }
     static synchronized void stopLiveLogcat() { if (liveLogcat != null) { liveLogcat.destroy(); liveLogcat = null; } }
+    // [BL2] 日志总开关：dm/env 的 DM_LOG（0 = 关，1 = 开；缺省关）。与 native（jni_android.c log_init）读的是同一个文件同一行
+    // [BL2] the log switch: DM_LOG in dm/env (0 = off, 1 = on; off by default); the native log_init reads the same line
+    static boolean logOn(Context c) {
+        try {
+            File env = new File(dir(c).getParentFile(), "env");
+            if (!env.isFile()) return false;
+            for (String l : java.nio.file.Files.readAllLines(env.toPath(), java.nio.charset.StandardCharsets.UTF_8)) {
+                String s = l.trim();
+                if (s.startsWith("DM_LOG=")) return !s.substring(7).trim().equals("0");
+            }
+        } catch (Exception e) { /* unreadable: keep the switch off */ }
+        return false;
+    }
 
     // ---- the session marker: the game is running (pid, state fg / bg / boot); removed on a clean end
     static void session(Context c, String state) {

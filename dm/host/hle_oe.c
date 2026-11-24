@@ -26,6 +26,7 @@ int dm_opmode(void) {
 enum { MSG_FOCUS = 15, MSG_OPMODE = 30, MSG_PERFMODE = 31 };
 #define MQ 32
 static pthread_mutex_t g_mq_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_mq_cond = PTHREAD_COND_INITIALIZER;   // oe::PopNotificationMessage 的阻塞等待（BL2 消息循环线程） | blocking wait for oe::PopNotificationMessage (BL2's applet-message thread)
 static uint32_t g_mq[MQ]; static int g_mqh, g_mqn;
 static _Atomic int g_ntf_opmode, g_ntf_perfmode;          // 游戏用 Set*NotificationEnabled 打开后才推 | only pushed after the game turns it on with Set*NotificationEnabled
 #ifdef DM_GAME_DOOM
@@ -50,6 +51,7 @@ static void mq_push(uint32_t m) {
             if (g_mq[(g_mqh + i) % MQ] == m) { pthread_mutex_unlock(&g_mq_lock); return; }
     if (g_mqn == MQ) die("oe 通知队列溢出（游戏没在取？）");
     g_mq[(g_mqh + g_mqn++) % MQ] = m;
+    pthread_cond_broadcast(&g_mq_cond);   // 唤醒在 PopNotificationMessage 里等消息的线程 | wake the thread waiting in PopNotificationMessage
     pthread_mutex_unlock(&g_mq_lock);
 }
 void dm_oe_res_changed(void) { if (getenv("DM_TEST_OE_FOCUS_FIRST")) mq_push(MSG_FOCUS);   /* 测试：让 31 排在一条焦点通知后面（iOS 包启动时的顺序） | Test: queue 31 behind a focus notification (the order at iOS app startup) */
@@ -377,6 +379,25 @@ HLE_FORCE("_ZN2nn2oe25TryPopNotificationMessageEPj", "系统通知队列；前�
     if (ok && (*msg == MSG_OPMODE || *msg == MSG_PERFMODE)) dm_ui_gen_bump(*msg == MSG_OPMODE ? DM_UIGEN_OPMODE : DM_UIGEN_PERFMODE);
 #endif   // 界面代号（dm_cursor.h） | UI generation (dm_cursor.h)
     return ok;
+}
+// BL2 的消息循环线程 (main+0x1294e54) 用阻塞版 PopNotificationMessage 取通知；D2R 只轮询 TryPop。
+// SDK 自己的实现等一个静态 os::SystemEvent，而 oe::Initialize 在宿主里是空操作、没人建这个事件，
+// 首帧就 abort 在 os::WaitSystemEvent（sdk+0xcb5bc / PopNotificationMessage 内 LDR 0x297fdc）。
+// 这里直接吃宿主的通知队列，语义保持阻塞：有消息立刻返回，没有就睡到前端推消息。
+// BL2's applet-message thread (main+0x1294e54) takes notifications with the blocking PopNotificationMessage; D2R only polls TryPop.
+// The SDK's own implementation waits on a static os::SystemEvent, but oe::Initialize is a no-op in the host and nobody creates that event,
+// so it aborts in os::WaitSystemEvent on the very first call (inside PopNotificationMessage, sdk+0xcb5bc / LDR 0x297fdc).
+// Serve the host queue directly, keeping the blocking semantics: return at once when a message is queued, otherwise sleep until the front end pushes one.
+HLE_FORCE("_ZN2nn2oe22PopNotificationMessageEv", "阻塞取系统通知（宿主队列）；BL2 消息循环线程用", uint32_t, h_oe_PopMsg, void) {
+    pthread_once(&g_oe_once, oe_script_start);
+    pthread_mutex_lock(&g_mq_lock);
+    while (g_mqn == 0) pthread_cond_wait(&g_mq_cond, &g_mq_lock);
+    uint32_t m = g_mq[g_mqh]; g_mqh = (g_mqh + 1) % MQ; g_mqn--;
+    pthread_mutex_unlock(&g_mq_lock);
+    // 分辨率参数位与 TryPop 同款：游戏在取通知的线程上读它们 | same per-thread resolution slots as TryPop: the game reads them on the thread fetching notifications
+    for (int i = 0; i < 2; i++) if (g_keyres[i]) pthread_setspecific(g_keyres[i], (void *)dm_game_res(i));
+    LOG("oe::PopNotificationMessage -> %u", m);
+    return m;
 }
 // bool 参数：Switch 调用方不扩展，声明成 unsigned 只看低 8 位
 // bool arguments: Switch callers do not extend them, declared as unsigned and only the low 8 bits are looked at

@@ -214,9 +214,12 @@ static uint64_t et_ProgramGetSubtileSize(uint64_t a, uint64_t b, uint64_t c) { r
 static uint64_t et_TextureBuilderGetViewOffset(uint64_t a, uint64_t b, uint64_t c) { return et_nvn_log("nvnTextureBuilderGetViewOffset", a, b, c); }
 static uint64_t et_CommandBufferOverrideSubtileSize(uint64_t a, uint64_t b, uint64_t c) { return et_nvn_log("nvnCommandBufferOverrideSubtileSize", a, b, c); }
 static uint64_t et_DeviceSetAutomaticCheckpointsMask(uint64_t a, uint64_t b, uint64_t c) { return et_nvn_log("nvnDeviceSetAutomaticCheckpointsMask", a, b, c); }
+// [BL2] SDK 9.3 NVX extension (main+0x12ba984 looks it up by name and calls it at boot); no external debugger in the host.
+static uint64_t et_SetExternalDebuggerEnabledNVX(uint64_t a, uint64_t b, uint64_t c) { return et_nvn_log("nvnSetExternalDebuggerEnabledNVX", a, b, c); }
 static const struct { const char *name; void *fn; } k_et_nvn[] = {
     {"nvnProgramGetSubtileSize", (void *)et_ProgramGetSubtileSize}, {"nvnTextureBuilderGetViewOffset", (void *)et_TextureBuilderGetViewOffset},
     {"nvnCommandBufferOverrideSubtileSize", (void *)et_CommandBufferOverrideSubtileSize}, {"nvnDeviceSetAutomaticCheckpointsMask", (void *)et_DeviceSetAutomaticCheckpointsMask},
+    {"nvnSetExternalDebuggerEnabledNVX", (void *)et_SetExternalDebuggerEnabledNVX},
 };
 #endif
 static void nvn_p2_install(void);   // [NR-16] DM_NVN_PROF=2 (nvn_cpuprof.inc)
@@ -281,7 +284,7 @@ NVN(nvnDeviceGetProcAddress, PFNNVNGENERICFUNCPTRPROC, const NVNdevice *d, const
 // 设备属性：Tegra X1 实测值（nnheaders nvn_DeviceConstantsNX.h，在 SMO 上逐项调 nvnDeviceGetInteger 得到）
 // Device properties: values measured on Tegra X1 (nnheaders nvn_DeviceConstantsNX.h, obtained by calling nvnDeviceGetInteger item by item on SMO)
 static const int g_devinfo[] = {
-    [0x00] = 53, [0x01] = 311,   // API 版本：游戏读了不比较（main 0x173cbd8），此值未核 | API version: the game reads it without comparing (main 0x173cbd8); this value is unverified
+    [0x00] = 53, [0x01] = 313,   // API 53.313（nxnative：SDK ≤10 的驱动版本；BL2 main+0x12ba8d8 要求 major==53 且 minor>311，否则 "NVN SDK not supported by current driver." 断言）| API 53.313 (nxnative: the version SDK 10-and-older drivers report; BL2 main+0x12ba8d8 requires major==53 and minor>311, otherwise it asserts "NVN SDK not supported by current driver.")
     [0x02] = 14, [0x03] = 65536, [0x04] = 256, [0x05] = 8, [0x06] = 16, [0x07] = 4, [0x08] = 16, [0x09] = 32,
     [0x0A] = 16, [0x0B] = 4, [0x0C] = 4, [0x0D] = 4, [0x0E] = 16, [0x0F] = 32, [0x10] = 32, [0x11] = 256, [0x12] = 256,
     [0x13] = 4, [0x14] = 8, [0x15] = 512, [0x16] = 256, [0x17] = 2, [0x18] = 256, [0x19] = 4096, [0x1A] = 131072,
@@ -934,14 +937,16 @@ NVN(nvnQueueFenceSync, void, NVNqueue *q, NVNsync *s, NVNsyncCondition c, int f)
 // A sync object that was never fenced waits until the timeout, as on the device; a fenced one is released only once the GPU has really completed up to that fence value
 // Diagnostics: how long the game waits per frame in SyncWait / event reads, and how many submits behind the newest the waited fence is (one line per 300 frames)
 uint64_t dm_nvn_frame_count(void);
+__attribute__((weak)) uint64_t xbg_vfence_skips(void) { return 0; }
 static _Atomic uint64_t g_gw_sync_n, g_gw_sync_ns, g_gw_sync_lag, g_gw_ev_n, g_gw_ev_ns, g_gw_sync_hit, g_gw_acq_n;
 static const void *volatile g_acq_sync;   // 最近一次取图带回的同步对象（诊断：游戏等的是不是它）| The sync handed back by the latest acquire (diagnostics: is this what the game waits on)
 static void gw_report(void) {
     static uint64_t last; uint64_t f = dm_nvn_frame_count(); if (f < last + 300) return; last = f;
     uint64_t sn = atomic_exchange(&g_gw_sync_n, 0), sns = atomic_exchange(&g_gw_sync_ns, 0), lag = atomic_exchange(&g_gw_sync_lag, 0), hit = atomic_exchange(&g_gw_sync_hit, 0);
     uint64_t en = atomic_exchange(&g_gw_ev_n, 0), ens = atomic_exchange(&g_gw_ev_ns, 0), an = atomic_exchange(&g_gw_acq_n, 0);
-    LOG("[nvn] 游戏等 GPU（300 帧）：SyncWait %.2f 次/帧（已完成 %.2f，其中取图同步 %.2f），共 %.2f ms/帧，平均落后最新提交 %.2f 次；读事件 %.2f 次/帧，共 %.2f ms/帧",
-        sn / 300.0, hit / 300.0, an / 300.0, sns / 300e6, sn ? (double)lag / sn : 0, en / 300.0, ens / 300e6);
+    uint64_t vf = xbg_vfence_skips ? xbg_vfence_skips() : 0;
+    LOG("[nvn] 游戏等 GPU（300 帧）：SyncWait %.2f 次/帧（已完成 %.2f，其中取图同步 %.2f），共 %.2f ms/帧，平均落后最新提交 %.2f 次；读事件 %.2f 次/帧，共 %.2f ms/帧；虚拟栅栏累计 %llu 次",
+        sn / 300.0, hit / 300.0, an / 300.0, sns / 300e6, sn ? (double)lag / sn : 0, en / 300.0, ens / 300e6, (unsigned long long)vf);
 }
 static int x_wait_sub(uint64_t sub, uint64_t timeout);
 static int x_sub_translated(uint64_t sub);   // [DOS2] PERF-E01 / TL2 #12: 1 = submit `sub` is translated (DM_NVN_SYNC_XWAIT)
@@ -1777,6 +1782,9 @@ NVN(nvnBlendStateSetBlendFunc, void, NVNblendState *s, NVNblendFunc sr, NVNblend
     blend_st *o = ST(blend_st, s); o->src_rgb = sr; o->dst_rgb = dr; o->src_a = sa; o->dst_a = da;
 }
 NVN(nvnBlendStateSetBlendEquation, void, NVNblendState *s, NVNblendEquation er, NVNblendEquation ea) { ST(blend_st, s)->eq_rgb = er; ST(blend_st, s)->eq_a = ea; }
+// [BL2] Advanced premultiplied source is a driver hint (BL2 sets it once at boot): the blend functions the game sets already
+// describe the same result, so there is nothing to store for the Vulkan blend state.
+NVN(nvnBlendStateSetAdvancedPremultipliedSrc, void, NVNblendState *s, uint32_t enable) { (void)s; (void)enable; }
 NVN(nvnColorStateSetDefaults, void, NVNcolorState *s) { NST(NRST_F_COLOR_DEF, 0, s, 0, 0, 0, 0.f); *ST(color_st, s) = (color_st){0, NVN_LOGIC_OP_COPY, NVN_ALPHA_FUNC_ALWAYS}; }
 NVN(nvnColorStateSetBlendEnable, void, NVNcolorState *s, int i, uint32_t en) {
     NST(NRST_F_COLOR_BLEND, 0, s, 0, i, en, 0.f);   // [DOS2] NR-09S DM_NR_STATE=2
@@ -2747,6 +2755,9 @@ void (*g_nvn_present_crop)(int crop[4]);
 int (*g_nvn_loadscreen_up)(void);   // 宿主登记：读取画面此刻是否开着（diag.c 订阅界面消息时填；图形单测里为空 = 不设闸） | host registration: whether the loading screen is up right now (filled in when diag.c subscribes to UI messages; null in graphics unit tests = no gate)
 NVN(nvnQueuePresentTexture, void, NVNqueue *q, NVNwindow *w, int idx) {
     (void)q; win_t *o = (win_t *)w; o->presents++;
+#ifdef DM_GAME_BL2
+    { extern void dm_bl2_cheat_tick(void) __attribute__((weak)); if (dm_bl2_cheat_tick) dm_bl2_cheat_tick(); }   // [BL2] 作弊命令（cheat.req）在客体线程执行，不另开线程碰 UE3 对象
+#endif
     NBT(if (idx >= 0 && idx < o->ntex && idx < 4) nbt_present(o->tex[idx]));   // [DOS2] DM_NB
 #ifdef DM_GAME_DOS2
     { extern void dm_cpu_place_self(void) __attribute__((weak)); if (dm_cpu_place_self) dm_cpu_place_self(); }   // [NR-CPU] DM_CPU_SELF: the main thread re-asserts its own mask

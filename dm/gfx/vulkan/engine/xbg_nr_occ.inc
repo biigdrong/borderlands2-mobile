@@ -28,8 +28,8 @@
 #include "../../nr/nr_occ.h"
 namespace nrocc{
 int mode=-1,path=NRO_PATH_AUTO,still=1;unsigned hold=2;bool drop=true,gpu_ok=false;
-nro_slot *ss[2]{};nro_hist *hist=nullptr;
-VkQueryPool pool[2]{};uint32_t reset_n[2]{},copied[2]{};
+nro_slot *ss[MAX_SLOTS]{};nro_hist *hist=nullptr;
+VkQueryPool pool[MAX_SLOTS]{};uint32_t reset_n[MAX_SLOTS]{},copied[MAX_SLOTS]{};
 VkBuffer pbuf=VK_NULL_HANDLE;VkDeviceMemory pmem=VK_NULL_HANDLE;uint32_t *pmap=nullptr;   // words: slot k at [k * NRO_MAX_Q], then the constants 0 / 1
 PFN_vkCmdBeginConditionalRenderingEXT pbegin=nullptr;PFN_vkCmdEndConditionalRenderingEXT pend=nullptr;
 // The condition in force (NVN command-buffer state): kind, decision, predicate word, the pair it names.

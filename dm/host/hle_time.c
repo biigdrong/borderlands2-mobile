@@ -105,3 +105,21 @@ HLE_FORCE("_ZN2nn4time14ToCalendarTimeEPNS0_12CalendarTimeEPNS0_22CalendarAdditi
 HLE_FORCE("localtime", "本地时刻 → 宿主 localtime（跟系统时区）", struct tm *, h_localtime, const int64_t *t) { time_t v = (time_t)*t; return localtime(&v); }
 HLE_FORCE("localtime_r", "本地时刻 → 宿主 localtime_r（跟系统时区）", struct tm *, h_localtime_r, const int64_t *t, struct tm *out) { time_t v = (time_t)*t; return localtime_r(&v, out); }
 HLE_FORCE("mktime", "本地日历 → 绝对秒，宿主 mktime（跟系统时区）", int64_t, h_mktime, struct tm *tm) { return (int64_t)mktime(tm); }
+
+#ifdef DM_GAME_BL2
+// [BL2] Borderlands 2 (UE3) asks for the console's location name early in nnMain; the SDK's nn::time::GetDeviceLocationName asserted inside
+// the SDK (svc Break reason 0, the host exited 42). The host runs no nn::time IPC service, so answer the location and the rule directly:
+// LocationName is 0x24 bytes, TimeZoneRule 0x40 (public Horizon layout). UTC keeps the game's log/save timestamps valid.
+HLE_FORCE("_ZN2nn4time21GetDeviceLocationNameEPNS0_12LocationNameE",
+          "[BL2] the location name \"UTC\": the host runs no nn::time IPC service", Result, h_time_GetDeviceLocationName, void *out) {
+    if (out) { unsigned char *p = (unsigned char *)out; for (int i = 0; i < 0x24; i++) p[i] = 0; p[0] = 'U'; p[1] = 'T'; p[2] = 'C'; }
+    return RES_OK;
+}
+HLE_FORCE("_ZN2nn4time16LoadTimeZoneRuleEPNS0_12TimeZoneRuleERKNS0_12LocationNameE",
+          "[BL2] a zeroed (UTC) time-zone rule: the host runs no nn::time IPC service", Result, h_time_LoadTimeZoneRule,
+          void *out, const void *name) {
+    (void)name;
+    if (out) { unsigned char *p = (unsigned char *)out; for (int i = 0; i < 0x40; i++) p[i] = 0; }
+    return RES_OK;
+}
+#endif

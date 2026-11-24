@@ -602,7 +602,15 @@ HLE_FORCE("_ZN2nn2fs17MountAddOnContentEPKciPvm", "fsp-srv; aoc RomFS -> host di
     { char t[1100]; strlcpy(t, d, sizeof t); for (char *q = t + 1; *q; q++) if (*q == '/') { *q = 0; mkdir(t, 0755); *q = '/'; } mkdir(t, 0755); }
     snprintf(f, sizeof f, "%s/info.txt", d); if (access(f, F_OK)) { FILE *o = fopen(f, "wb"); if (o) fclose(o); }
     LOG("fs::MountAddOnContent %s index %d -> %s", name, idx, d);
-    return mount(name, d, 1);
+    Result r = mount(name, d, 1);
+    // [BL2] the Chinese patch is a DM_ROMFS_OVERLAY layer: apply it to add-on content mounts too, so DLC text (Anemone .int) is localised
+    if (r == RES_OK && getenv("DM_ROMFS_OVERLAY")) {
+        PATH_LOCK();
+        for (int i = 0; i < g_nmnt; i++) if (!strcmp(g_mnt[i].name, name)) {
+            strlcpy(g_mnt[i].overlay, getenv("DM_ROMFS_OVERLAY"), sizeof g_mnt[i].overlay); break;
+        }
+    }
+    return r;
 }
 #endif
 HLE_FORCE("_ZN2nn2fs21MountTemporaryStorageEPKc", "fsp-srv；临时区 → 宿主目录", Result, h_fs_MountTemp, const char *name) {

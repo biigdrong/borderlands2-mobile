@@ -460,11 +460,20 @@ int create_swap(){
     if(nrr::mode){nrr_pre=nrr::decide(cap,sf.format,(cap.supportedUsageFlags&VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)!=0,rcas::enabled());
         if(nrr_pre!=VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR){ci.preTransform=nrr_pre;ci.imageUsage|=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;nrr_image_extent(uint32_t(nrr_pre),extent.width,extent.height,&ci.imageExtent.width,&ci.imageExtent.height);}}
     if(!(cap.supportedCompositeAlpha&ci.compositeAlpha))for(uint32_t b=1;b<=8;b<<=1)if(cap.supportedCompositeAlpha&b){ci.compositeAlpha=VkCompositeAlphaFlagBitsKHR(b);break;}
-    ci.presentMode=VK_PRESENT_MODE_FIFO_KHR;ci.clipped=VK_TRUE;ci.oldSwapchain=swapchain;VkSwapchainKHR replacement=VK_NULL_HANDLE;r=vkCreateSwapchainKHR(device,&ci,nullptr,&replacement);
+    // [BL2] DM_VK_PRESENT=mailbox|immediate|fifo: the swapchain present mode. FIFO (the default) makes the queue wait for the display, so
+    // the GPU idles between frames while the CPU records the next one; MAILBOX does not block (and does not tear) and lets the GPU run back
+    // to back. The mode is tried as asked; if the surface rejects it the next create_swap() uses FIFO (the loader stub here has no
+    // vkGetPhysicalDeviceSurfacePresentModesKHR, so the support list cannot be queried up front).
+    static bool pm_fallback=false;   // this process: the requested mode was rejected once
+    VkPresentModeKHR pm=VK_PRESENT_MODE_FIFO_KHR;
+    if(!pm_fallback){ const char *e=getenv("DM_VK_PRESENT");
+      if(e&&*e){ if(!strcmp(e,"mailbox"))pm=VK_PRESENT_MODE_MAILBOX_KHR; else if(!strcmp(e,"immediate"))pm=VK_PRESENT_MODE_IMMEDIATE_KHR; } }
+    ci.presentMode=pm;ci.clipped=VK_TRUE;ci.oldSwapchain=swapchain;VkSwapchainKHR replacement=VK_NULL_HANDLE;r=vkCreateSwapchainKHR(device,&ci,nullptr,&replacement);
     // 创建失败也会退休oldSwapchain；重试不得继续传入退休句柄。
     // Even failed creation retires oldSwapchain; never pass that retired handle on retry.
     destroy_present_semaphores();if(nrp::mode)nrp::drop();if(nrr::mode)nrr::drop();if(swapchain)vkDestroySwapchainKHR(device,swapchain,nullptr);swapchain=r?VK_NULL_HANDLE:replacement;images.clear();
     if(r && nrr_pre!=VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR){nrr::fail("vkCreateSwapchainKHR (pre-rotated)",r);return create_swap();}   // [DOS2] NR-20: the old one is retired and gone: an identity one now
+    if(r && pm!=VK_PRESENT_MODE_FIFO_KHR){static bool told;if(!told){told=true;__android_log_print(ANDROID_LOG_INFO,"dm-vulkan","present mode %d rejected (%d): FIFO",int(pm),int(r));}pm_fallback=true;return create_swap();}   // [BL2] no MAILBOX here: FIFO
     if(r)return r;swap_format=sf.format;
     if(nrr::mode){nrr::pre=nrr_pre;nrr::img=ci.imageExtent;++nrr::swaps;if(nrr_pre!=VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)++nrr::rotated_swaps;}   // [DOS2] NR-20
     created_transform=cap.currentTransform;created_surface_extent=cap.currentExtent;
@@ -592,6 +601,79 @@ bool record(VkCommandBuffer cmd,unsigned f,VkImage source,VkFormat format,uint32
     return true;
 }
 }
+// [BL2] FSR 1 EASU at the present: the game's frame (e.g. 1280x720) upscaled to the window with edge-adaptive spatial upsampling
+// (shaders/fsr1_easu.comp, offline compiled, MIT FsrEasuF). DM_GFX_FSR=1 turns it on; the window buffer then takes the screen's size and
+// this compute pass replaces the display controller's scaling. RCAS sharpens its output when the gear's sharpening is on (FSR 1's second
+// pass). Only 8-bit RGBA/BGRA frames, like RCAS.
+namespace easu {
+const uint32_t code[]={
+#include "shaders/fsr1_easu.spv.inc"
+};
+int on=-1; VkImage image{}; VkDeviceMemory memory{}; VkImageView view{}; uint32_t w=0,h=0;
+VkDescriptorSetLayout set_layout{}; VkPipelineLayout layout{}; VkPipeline pipeline{}; VkDescriptorPool pool{}; VkDescriptorSet sets[2]{};
+VkSampler sampler{}; VkImageView source_views[2]{};
+bool enabled(){
+    if(on<0){ const char *e=getenv("DM_GFX_FSR"); on = e && *e && atoi(e)>0;
+        if(on) __android_log_print(ANDROID_LOG_INFO,"dm-vulkan","FSR 1 EASU at present (DM_GFX_FSR): the frame is upscaled to the window on the GPU"); }
+    return on>0;
+}
+uint32_t memory_type(uint32_t bits,VkMemoryPropertyFlags want){
+    VkPhysicalDeviceMemoryProperties mp;vkGetPhysicalDeviceMemoryProperties(physical,&mp);
+    for(uint32_t i=0;i<mp.memoryTypeCount;i++)if((bits&(1u<<i)) && (mp.memoryTypes[i].propertyFlags&want)==want)return i;
+    return 0;
+}
+bool setup(){
+    if(pipeline)return true;
+    VkDescriptorSetLayoutBinding b[2]{};b[0].binding=0;b[0].descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;b[0].descriptorCount=1;b[0].stageFlags=VK_SHADER_STAGE_COMPUTE_BIT;
+    b[1].binding=1;b[1].descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;b[1].descriptorCount=1;b[1].stageFlags=VK_SHADER_STAGE_COMPUTE_BIT;
+    VkDescriptorSetLayoutCreateInfo dl{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};dl.bindingCount=2;dl.pBindings=b;if(vkCreateDescriptorSetLayout(device,&dl,nullptr,&set_layout))return false;
+    VkPushConstantRange pc{VK_SHADER_STAGE_COMPUTE_BIT,0,16};VkPipelineLayoutCreateInfo pl{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};pl.setLayoutCount=1;pl.pSetLayouts=&set_layout;pl.pushConstantRangeCount=1;pl.pPushConstantRanges=&pc;
+    if(vkCreatePipelineLayout(device,&pl,nullptr,&layout))return false;
+    VkShaderModuleCreateInfo mi{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};mi.codeSize=sizeof code;mi.pCode=code;VkShaderModule module{};if(vkCreateShaderModule(device,&mi,nullptr,&module))return false;
+    VkComputePipelineCreateInfo ci{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};ci.stage.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;ci.stage.stage=VK_SHADER_STAGE_COMPUTE_BIT;ci.stage.module=module;ci.stage.pName="main";ci.layout=layout;
+    VkResult r=vkCreateComputePipelines(device,VK_NULL_HANDLE,1,&ci,nullptr,&pipeline);vkDestroyShaderModule(device,module,nullptr);if(r)return false;
+    VkDescriptorPoolSize ps[2]{{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,2},{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,2}};VkDescriptorPoolCreateInfo dp{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};dp.maxSets=2;dp.poolSizeCount=2;dp.pPoolSizes=ps;
+    if(vkCreateDescriptorPool(device,&dp,nullptr,&pool))return false;
+    VkDescriptorSetLayout ls[2]={set_layout,set_layout};VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};ai.descriptorPool=pool;ai.descriptorSetCount=2;ai.pSetLayouts=ls;if(vkAllocateDescriptorSets(device,&ai,sets))return false;
+    VkSamplerCreateInfo si{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};si.magFilter=si.minFilter=VK_FILTER_NEAREST;si.addressModeU=si.addressModeV=si.addressModeW=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;if(vkCreateSampler(device,&si,nullptr,&sampler))return false;
+    return true;
+}
+bool target(uint32_t width,uint32_t height){
+    if(image && w==width && h==height)return true;
+    if(view)vkDestroyImageView(device,view,nullptr);if(image)vkDestroyImage(device,image,nullptr);if(memory)vkFreeMemory(device,memory,nullptr);view={};image={};memory={};
+    VkImageCreateInfo ic{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};ic.imageType=VK_IMAGE_TYPE_2D;ic.format=VK_FORMAT_R8G8B8A8_UNORM;ic.extent={width,height,1};ic.mipLevels=ic.arrayLayers=1;ic.samples=VK_SAMPLE_COUNT_1_BIT;
+    ic.tiling=VK_IMAGE_TILING_OPTIMAL;ic.usage=VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT;if(vkCreateImage(device,&ic,nullptr,&image))return false;
+    VkMemoryRequirements mr;vkGetImageMemoryRequirements(device,image,&mr);VkMemoryAllocateInfo ma{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};ma.allocationSize=mr.size;ma.memoryTypeIndex=memory_type(mr.memoryTypeBits,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if(vkAllocateMemory(device,&ma,nullptr,&memory) || vkBindImageMemory(device,image,memory,0))return false;
+    VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};vi.image=image;vi.viewType=VK_IMAGE_VIEW_TYPE_2D;vi.format=ic.format;vi.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};if(vkCreateImageView(device,&vi,nullptr,&view))return false;
+    w=width;h=height;return true;
+}
+// records the pass; on success the caller blits from easu::image (TRANSFER_SRC_OPTIMAL) 1:1 instead of the source
+bool record(VkCommandBuffer cmd,unsigned f,VkImage source,VkFormat format,uint32_t sw,uint32_t sh,uint32_t dw,uint32_t dh){
+    if(!enabled() || (format!=VK_FORMAT_R8G8B8A8_UNORM && format!=VK_FORMAT_B8G8R8A8_UNORM))return false;
+    if(!dw || !dh || !sw || !sh)return false;
+    if(!setup() || !target(dw,dh)){on=0;__android_log_print(ANDROID_LOG_WARN,"dm-vulkan","FSR EASU setup failed: upscaling off");return false;}
+    if(source_views[f])vkDestroyImageView(device,source_views[f],nullptr);   // this flight's previous frame has retired (its fence was waited)
+    VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};vi.image=source;vi.viewType=VK_IMAGE_VIEW_TYPE_2D;vi.format=format;vi.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
+    if(vkCreateImageView(device,&vi,nullptr,&source_views[f])){source_views[f]={};return false;}
+    VkDescriptorImageInfo si{sampler,source_views[f],VK_IMAGE_LAYOUT_GENERAL},di{VK_NULL_HANDLE,view,VK_IMAGE_LAYOUT_GENERAL};
+    VkWriteDescriptorSet wr[2]{};for(auto &x:wr){x.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;x.dstSet=sets[f];x.descriptorCount=1;}
+    wr[0].dstBinding=0;wr[0].descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;wr[0].pImageInfo=&si;
+    wr[1].dstBinding=1;wr[1].descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;wr[1].pImageInfo=&di;vkUpdateDescriptorSets(device,2,wr,0,nullptr);
+    VkImageMemoryBarrier b[2]{};
+    for(auto &x:b){x.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;x.srcQueueFamilyIndex=x.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;x.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};}
+    b[0].image=source;b[0].oldLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;b[0].newLayout=VK_IMAGE_LAYOUT_GENERAL;b[0].srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;b[0].dstAccessMask=VK_ACCESS_SHADER_READ_BIT;
+    b[1].image=image;b[1].oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;b[1].newLayout=VK_IMAGE_LAYOUT_GENERAL;b[1].srcAccessMask=VK_ACCESS_TRANSFER_READ_BIT;b[1].dstAccessMask=VK_ACCESS_SHADER_WRITE_BIT;
+    vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0,0,nullptr,0,nullptr,2,b);
+    vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,pipeline);vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,layout,0,1,&sets[f],0,nullptr);
+    struct{float sw,sh,dw,dh;}push{float(sw),float(sh),float(dw),float(dh)};vkCmdPushConstants(cmd,layout,VK_SHADER_STAGE_COMPUTE_BIT,0,sizeof push,&push);
+    vkCmdDispatch(cmd,(dw+7)/8,(dh+7)/8,1);
+    b[0].oldLayout=VK_IMAGE_LAYOUT_GENERAL;b[0].newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;b[0].srcAccessMask=VK_ACCESS_SHADER_READ_BIT;b[0].dstAccessMask=0;   // back to the layout the engine tracks
+    b[1].oldLayout=VK_IMAGE_LAYOUT_GENERAL;b[1].newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;b[1].srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT;b[1].dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;
+    vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,2,b);
+    return true;
+}
+}
 #ifdef DM_TL2_MAIN   // [DOS2] Torchlight II main addresses: tl2 build only
 extern "C" int (*dm_present_pillarbox)(void);   // [TL2] hle_tl2_wide.c registers it (translation thread, at the present): 0 none, 1 squeeze, 2 band 16:9, 3 band stretched
 // [TL2] hle_tl2_icons.c: the HUD action bar's icon rectangles (source pixels) to copy out of this frame, and the copied pixels after the
@@ -646,6 +728,11 @@ int present(void*,void*,VkImage source,VkFormat source_format,uint32_t width,uin
 int present_body(VkImage source,VkFormat source_format,uint32_t width,uint32_t height,const int32_t crop[4],int pre_index,uint64_t pre_gen){
     VkFormatProperties sp;vkGetPhysicalDeviceFormatProperties(physical,source_format,&sp);if(!(sp.optimalTilingFeatures&VK_FORMAT_FEATURE_BLIT_SRC_BIT))return VK_ERROR_FORMAT_NOT_SUPPORTED;
     int x=0,y=0,w=int(width),h=int(height);if(crop&&crop[2]>0&&crop[3]>0){x=std::clamp(crop[0],0,w);y=std::clamp(crop[1],0,h);w=std::min(crop[2],int(width)-x);h=std::min(crop[3],int(height)-y);}if(w<=0||h<=0)return VK_ERROR_INITIALIZATION_FAILED;
+    if(easu::enabled() && present_native){   // [BL2] FSR: the window buffer must be the screen's size, so the GPU upscales instead of the display controller
+        present_native=false;native_w=native_h=0;swap_dirty=true;
+        if(active) ANativeWindow_setBuffersGeometry(active,0,0,0);   // back to the window's own size
+        __android_log_print(ANDROID_LOG_INFO,"dm-vulkan","FSR: window buffer = the screen's size (display scaling off, EASU at present)");
+    }
     for(;;){
     if(present_native && surface && active && (native_w!=w || native_h!=h)){   // the next swapchain takes this size (currentExtent follows the buffer geometry)
         int g=ANativeWindow_setBuffersGeometry(active,w,h,0);native_w=w;native_h=h;swap_dirty=true;
@@ -741,8 +828,15 @@ int present_body(VkImage source,VkFormat source_format,uint32_t width,uint32_t h
         if(!nrr::draw(cmd,f,index,source,source_format,width,height,bx,y,bw,h,nrr_rect{dx,dy,dw,dh},extent.width,extent.height,filter==VK_FILTER_LINEAR,sharpen,rcas::sharpness,&sharpened)){
             nrr::fail("the window texture's view",VK_ERROR_OUT_OF_HOST_MEMORY);swap_dirty=true;}}   // this frame black, the next present makes an identity swapchain
     else{
-    sharpened=rcas::record(cmd,f,source,source_format,width,height);
-    vkCmdBlitImage(cmd,sharpened?rcas::image:source,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,images[index],VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&blit,filter);
+    bool fsr=false;
+    int bsx=bx, bsy=y, bsw=bw, bsh=h;   // the source rect the blit reads
+    if(!turned && easu::enabled() && x==0 && y==0 && w==int(width) && h==int(height)){   // [BL2] FSR 1 EASU: whole frame, no crop
+        if(easu::record(cmd,f,source,source_format,width,height,dw,dh)){ bsx=0; bsy=0; bsw=int(dw); bsh=int(dh); fsr=true; }
+    }
+    sharpened=rcas::record(cmd,f,fsr?easu::image:source,fsr?VK_FORMAT_R8G8B8A8_UNORM:source_format,fsr?dw:w,fsr?dh:h);
+    VkImageBlit src=blit;   // FSR: 1:1 from the upscaled image; otherwise the source rect as before
+    if(fsr){src.srcOffsets[0]={bsx,bsy,0};src.srcOffsets[1]={bsx+bsw,bsy+bsh,1};}
+    vkCmdBlitImage(cmd,sharpened?rcas::image:(fsr?easu::image:source),VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,images[index],VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&src,filter);
     // 同队列后续写入必须等源图读取完成；即使下一次图像布局未改变也建立 WAR 执行依赖。
     // Order subsequent same-queue writes after the source read, including reuse without a layout change.
     VkMemoryBarrier source_read{VK_STRUCTURE_TYPE_MEMORY_BARRIER};source_read.srcAccessMask=VK_ACCESS_TRANSFER_READ_BIT;source_read.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;

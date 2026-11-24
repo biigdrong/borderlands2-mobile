@@ -46,22 +46,24 @@ final class Tl2Gear {
         Mode mode = new Mode(a);
         List<GearSettings.Section> l = new ArrayList<>();
         l.add(startEnv(a));
-        l.add(GearPages.menuLanguage());
+        if (DmActivity.BL2) l.add(GearSettings.page("图形（重启生效）", Bl2Gfx.page()));   // [BL2] 设置/图形：游戏自己的画质键（Bl2Gfx / Bl2Ini）
+        if (DmActivity.BL2) l.add(GearSettings.page("作弊", Bl2Cheat.page()));   // [BL2] 作弊：游戏自带的 WillowCheatManager 命令（Bl2Cheat + hle_bl2_probe.c）
         l.add(GearPages.gameLanguage(DmActivity.D3_LANG_CODES, DmActivity.D3_LANG_LABELS, true));
         l.add(note(R.string.d3_game_lang_note));
         l.add(mode);
         l.add(GearPages.pictureShape(new String[] {g.str(R.string.d3_aspect_bars), g.str(R.string.d3_aspect_stretch), g.str(R.string.d3_aspect_wide)},
             DmActivity.D3_ASPECT_DEFAULT, g.str(R.string.d3_aspect_wide_note), a::applyAspectLayout, (s, v) -> aspectEnv(a, v), mode::relabel));
-        l.add(stretchLoading());
+        if (!DmActivity.BL2) l.add(stretchLoading());   // [BL2] 加载画面拉伸是 DOS2/TL2 的，BL2 无效，不再显示
         // TL2 mods: their own row in the pause menu (DmActivity.portRows -> Tl2Gear.showMods), not a gear section
-        l.add(GearPages.sharpen());
+        if (!DmActivity.BL2) l.add(GearPages.sharpen());   // [BL2] 锐化已经放进「图形」页，这里不再重复
         l.add(GearPages.fpsLimit(FPS_LIMITS, 60)); l.add(note(R.string.d3_fps_note));
-        if (a.drivers() != null) { l.add(GearPages.driver(a.drivers())); l.add(note(R.string.d3_driver_note)); }
+        if (a.drivers() != null) { l.add(GearPages.driver(a.drivers())); l.add(note(R.string.d3_driver_note)); }   // [BL2] 系统驱动 / 开源驱动（自己选 ZIP）
         l.add(GearPages.rumble());
         l.add(localPlay());
         l.add(GearPages.fpsCounter());
         l.add(new Layout());
         l.add(GearPages.padControls());
+        if (DmActivity.BL2) l.add(GearPages.padAutoHide());   // [BL2] 触控 UI 自动隐藏 + 秒数
         l.add(GearPages.deadzone());
         l.add(TL2 ? new TouchRows() : new D3Touch());
         l.add(GearPages.gearButton());
@@ -77,7 +79,6 @@ final class Tl2Gear {
         List<GearSettings.Section> l = new ArrayList<>();
         l.add(startEnv(a));
         l.add(group(R.string.dos2_group_lang));
-        l.add(GearPages.menuLanguage());
         l.add(GearPages.gameLanguage(DmActivity.D3_LANG_CODES, DmActivity.D3_LANG_LABELS, true));
         l.add(note(R.string.d3_game_lang_note));
         l.add(group(R.string.dos2_group_screen));
@@ -199,6 +200,7 @@ final class Tl2Gear {
             int[] sc = a.screenSize(); long ww = sc[1] > 0 ? Math.round(1080.0 * sc[0] / sc[1] / 16) * 16 : 0;
             Os.setenv("DM_TL2_WIDE", v != 2 ? "0" : ww > 1920 ? Long.toString(ww) : "1", true);
         } else if (v == 2) Os.setenv("DM_D3_WIDE", "1", true); else Os.unsetenv("DM_D3_WIDE");
+        if (DmActivity.BL2) Os.setenv("DM_BL2_WIDE", v == 2 ? "1" : "0", true);   // [BL2] 画面形状=宽屏就是真宽屏（原生补丁），其余形状关闭
     }
     // ---- widescreen loading screens: TL2 pillarboxed 16:9 by default, stretched when asked (hle_tl2_wide.c); D3 the other way round (ls_present_crop)
     // ---- [DOS2] the window height (no row since 19.11): always the screen's own (dos2NativeRes) -> DM_DOS2_RES and DmActivity.dos2Base (the

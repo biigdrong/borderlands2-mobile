@@ -66,7 +66,9 @@ int touch_fill(void *out, uint64_t now_ns) {
     int32_t cnt = k; memcpy(o + 0, &samp, 8); memcpy(o + 8, &cnt, 4);
     // DM_TOUCH_LOG=1（验收诊断）：非 0 触点的读逐次记一行——采样号、触点数、各点 finger_id / 面板 x,y / 属性（1 Start、2 End）；封顶 500 行
     // DM_TOUCH_LOG=1 (acceptance diagnostics): each read with non-zero touch points logs one line -- sample number, touch count, and for each point finger_id / panel x,y / attributes (1 Start, 2 End); capped at 500 lines
-    static int lg = -1, nl; if (lg < 0) lg = getenv("DM_TOUCH_LOG") != NULL;
+    static int lg = -1, nl, z; if (lg < 0) lg = getenv("DM_TOUCH_LOG") != NULL;
+    // 第一次读到 0 触点也记一行：证明游戏确实在轮询触摸屏（否则原生触屏无从谈起） | log the first zero-contact read too: proof the game polls the touchscreen
+    if (lg && !k && !z) { z = 1; LOG("触屏读 0 触点：游戏在轮询触摸屏（GetTouchScreenStates）"); }
     if (lg && k && nl < 500) {
         char b[256]; int m = snprintf(b, sizeof b, "触屏读 采样 %lld 触点 %d", (long long)samp, k);
         for (int i = 0; i < k && m < (int)sizeof b - 40; i++) { int32_t v[4]; memcpy(v, o + 0x10 + 0x28 * i + 0x08, 16);

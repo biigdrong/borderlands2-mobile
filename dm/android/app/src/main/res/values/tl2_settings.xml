@@ -1,23 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- [TL2] Divinity: Original Sin 2 touch layouts (Tl2Touch.java, after D2R Mobile) -->
+<!-- 触屏布局（Tl2Touch.java）与设置里的布局说明；本端口只有中文，其他语言目录不再提供同名文件 -->
 <resources>
-    <string name="tl2_layout_touch">Touch: two sticks + skill fan (D2R Mobile style)</string>
-    <string name="tl2_layout_side">Touch: quick-access buttons on the sides</string>
-    <string name="tl2_layout_note">Both touch layouts: the move stick appears under your left thumb in the lower left, the aim stick (right stick) under your right thumb anywhere free in the lower right. Fan: A primary, B X Y R around it, ZR above, II = second skill set (holds the modifier while a skill is used); bottom row = d-pad and +, top = ZL L L3, − R3. Side layout: every Switch button as its own cell: right edge A B X Y R ZR and modifier + each of them, left edge L ZL and the d-pad, top L3 − + R3. Menus are driven with the buttons (the game has no touch of its own).</string>
-    <!-- [DOS2] the gear's layout list: the Switch pad first -->
-    <string name="dos2_layout_switch">Switch gamepad (Joy-Con, default)</string>
-    <string name="dos2_layout_note">Switch gamepad: the game\'s own controls as on the Switch: left stick (appears under the thumb on the left) with the d-pad below it, A B X Y and the right stick on the right, L ZL / R ZR in the top corners, − ⚙ + on top. Its editor (gear → Edit the layout): drag a control, a second finger resizes it, Grouped / Separate (the d-pad and the ABXY diamond as one or as four buttons), Hide takes a control out of the game, Save keeps the changes. The two touch layouts are Torchlight II\'s (D2R Mobile style).</string>
-    <string name="tl2_touch">Touch layout</string>
-    <string name="tl2_iso">Diagonal correction: %1$d%%</string>
-    <string name="tl2_iso_note">Makes the hero walk (and aim) the way the finger points. Push the stick at 45 degrees: if the hero walks flatter than the finger, raise it.</string>
-    <string name="tl2_mod">Second skill set modifier (II / the inner side column)</string>
-    <string name="tl2_mod_note">The button the game holds for its second set of skills; it goes down a moment before the skill button.</string>
-    <string name="tl2_extras">Extras (off by default)</string>
-    <string name="tl2_tap">Tap on the world (outside the sticks)</string>
-    <string name="tl2_tap_a">A (attack / pick up / talk)</string>
-    <string name="tl2_tap_face">Turn toward the point, then A</string>
-    <string name="tl2_hold_walk">Touch and hold the world = walk toward the finger</string>
-    <string name="tl2_aim">Dragging a fan skill aims with</string>
-    <string name="tl2_aim_right">right stick</string>
-    <string name="tl2_aim_left">left stick</string>
+    <string name="tl2_layout_touch">触屏：双摇杆 + 技能扇形（D2R Mobile 风格）</string>
+    <string name="tl2_layout_side">触屏：两侧快捷按钮</string>
+    <string name="tl2_layout_note">两种触屏布局：移动摇杆出现在左下角拇指下，瞄准摇杆（右摇杆）出现在右下角任意空处。扇形：A 主键，B X Y R 环绕，ZR 在上方，II = 第二技能组（使用技能时按住修饰键）；底行为十字键和 +，顶部为 ZL L L3、− R3。侧栏布局：每个 Switch 按键单独一格：右边缘 A B X Y R ZR 及各自的修饰键，左边缘 L ZL 和十字键，顶部 L3 − + R3。菜单用按键操作（游戏本身没有触屏）。</string>
+    <string name="dos2_layout_switch">Switch 手柄（Joy-Con，默认）</string>
+    <string name="dos2_layout_note">Switch 手柄：与 Switch 上相同的游戏原生操作：左摇杆（出现在左侧拇指下）与下方的十字键，右侧 A B X Y 和右摇杆，顶部两角 L ZL / R ZR，顶部 − ⚙ +。它的编辑器（设置 → 编辑布局）：拖动控件，第二根手指缩放，组合 / 分离（十字键和 ABXY 菱形作为一个或四个按钮），隐藏会把控件从游戏中移除，保存保留修改。两种触屏布局沿用 Torchlight II 的（D2R Mobile 风格）。</string>
+    <string name="tl2_touch">触屏布局</string>
+    <string name="tl2_iso">斜向修正：%1$d%%</string>
+    <string name="tl2_iso_note">让英雄朝手指所指方向行走（和瞄准）。把摇杆推向 45 度：如果英雄走得比手指更平，就调高它。</string>
+    <string name="tl2_mod">第二技能组修饰键（II / 内侧栏）</string>
+    <string name="tl2_mod_note">游戏为第二组技能按住的按钮；它会在技能键之前稍早按下。</string>
+    <string name="tl2_extras">附加项（默认关闭）</string>
+    <string name="tl2_tap">点按世界（摇杆以外）</string>
+    <string name="tl2_tap_a">A（攻击 / 拾取 / 对话）</string>
+    <string name="tl2_tap_face">转向该点，然后 A</string>
+    <string name="tl2_hold_walk">按住世界 = 朝手指行走</string>
+    <string name="tl2_aim">拖动扇形技能时用哪个摇杆瞄准</string>
+    <string name="tl2_aim_right">右摇杆</string>
+    <string name="tl2_aim_left">左摇杆</string>
 </resources>
