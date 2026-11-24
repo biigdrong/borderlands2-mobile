@@ -36,7 +36,16 @@ jobs:
         run: |
           mkdir -p ci-gen
           : > ci-gen/dm_bright_levels.inc
-          : > ci-gen/dm_touch_native_art.c
+          cat > ci-gen/dm_touch_native_art.c <<'EOF'
+          // CI stand-in (no game data): skill art is empty; same shape as dm/host/doom_stubs.c
+          #include <stdint.h>
+          #include <string.h>
+          #include "dm_touch_native_art.h"
+          dm_ta_glyph dm_ta_skill(uint32_t raw_skill_id) { dm_ta_glyph g = {0}; g.raw_skill_id = raw_skill_id; g.reason = "ci"; return g; }
+          dm_ta_glyph dm_ta_current_set(const dm_tg_snapshot *s, uint64_t sdk_button, uint64_t host_now_ns, int skill_set) {
+              (void)s; (void)sdk_button; (void)host_now_ns; (void)skill_set; dm_ta_glyph g = {0}; g.reason = "ci"; return g; }
+          int dm_ta_frame_at(int atlas, int frame, dm_ta_frame *out) { (void)atlas; (void)frame; if (out) memset(out, 0, sizeof *out); return 0; }
+          EOF
           cat > ci-gen/dm_vault_tab.h <<'EOF'
           // CI stand-in (no game data): the fixed table loads from dm/derived.tsv at run time.
           #pragma once
