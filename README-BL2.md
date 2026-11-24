@@ -54,6 +54,31 @@ DM_3D_SCALE=1.0
 
 ## 4. Build the APK
 
+**First build: the generated headers (`DM_GEN_DIR`).** The Android host build needs a
+directory with four files derived from game data, so they are not committed:
+`dm_vault_tab.h`, `dm_hud_exp.h`, `dm_bright_levels.inc`, `dm_touch_native_art.c`.
+The rules live in `dm/host/Makefile`:
+
+```bash
+python dm/ios/tools/gen_vault_table.py <romfs> > <gen>/dm_vault_tab.h
+python dm/ios/tools/gen_hud_exp.py     <romfs> > <gen>/dm_hud_exp.h
+python tools/gen_bright_levels.py      <romfs> > <gen>/dm_bright_levels.inc
+python dm/ios/tools/native_art/generate.py <romfs> --output-dir <gen>
+```
+
+Those generators were written for the D3 / DOS2 data layout. For BL2 the practical
+way is to take the four files from a build tree that already has them (an existing
+DOS2/D3 build under `work/build-android/gen-*`, or a generated directory from another
+machine), then point the build at that directory:
+
+```powershell
+$env:DM_GEN_DIR = 'C:\path\to\gen'
+```
+
+`tools/build_apk.ps1` passes it to gradle as `-PdmGenDir` (without it, CMake stops with
+"要 -DDM_GEN_DIR=..."). The four files are inputs of the host/HUD/vault/brightness code
+shared by all games; for BL2 they do not carry BL2-specific data.
+
 ```powershell
 $env:ANDROID_HOME = 'C:\path\to\android-sdk'
 $env:JAVA_HOME    = 'C:\path\to\jdk-21'

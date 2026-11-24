@@ -94,7 +94,9 @@ if (Test-Path dm/android/dos2/dos2-pipe-seed.bin) { Copy-Item dm/android/dos2/do
 $drv = '-PdmDriverAssets=' + ((Resolve-Path $fa).Path -replace '\\', '/')
 if (-not (Get-Command $gradle -ErrorAction SilentlyContinue)) { throw "Gradle not found: '$gradle' (put gradle on PATH or set GRADLE to gradle.bat)" }
 $built = Join-Path $PWD 'dm/android/app/build/outputs/apk/debug/app-debug.apk'; if (Test-Path $built) { Remove-Item $built }   # never re-sign a stale APK
-& $gradle -p dm/android :app:assembleDebug "-PdmGame=$game" "-PdmAppId=$appid" "-PdmPython=$python" "-PdmPrebuiltJni=$jni" "-PdmMinSdk=$minsdk" --console plain $drv *> work/logs/gradle-apk.log
+$genDir = Env-Or 'DM_GEN_DIR' ''
+$genArgs = if ($genDir) { @("-PdmGenDir=$genDir") } else { @() }
+& $gradle -p dm/android :app:assembleDebug "-PdmGame=$game" "-PdmAppId=$appid" "-PdmPython=$python" "-PdmPrebuiltJni=$jni" "-PdmMinSdk=$minsdk" @genArgs --console plain $drv *> work/logs/gradle-apk.log
 if ($LASTEXITCODE) { throw 'APK build failed (work/logs/gradle-apk.log)' }
 if (-not (Test-Path $built)) { throw 'APK build produced no app-debug.apk (work/logs/gradle-apk.log)' }
 if (-not (Test-Path $keystore)) { throw "Keystore not found: $keystore (set DM_KEYSTORE; Android Studio creates ~/.android/debug.keystore, or: keytool -genkeypair -keystore <file> -alias androiddebugkey -storepass android -keypass android -keyalg RSA -validity 10000 -dname CN=Android)" }
