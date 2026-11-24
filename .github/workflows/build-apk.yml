@@ -32,8 +32,11 @@ jobs:
 
       - name: Generated host headers (DM_GEN_DIR)
         run: |
-          python3 dm/ios/tools/shell_stubs.py stubs-gen ci-gen
-          test -f ci-gen/dm_bright_levels.inc || printf '/* stand-in: no BL2 data */\n' > ci-gen/dm_bright_levels.inc
+          mkdir -p ci-gen
+          : > ci-gen/dm_vault_tab.h
+          : > ci-gen/dm_hud_exp.h
+          : > ci-gen/dm_bright_levels.inc
+          : > ci-gen/dm_touch_native_art.c
           ls -l ci-gen
 
       - name: Build debug APK
