@@ -150,7 +150,7 @@ Nintendo Switch на Android-телефоне. В проекте нет файл
 ## Шаг 6. Установите приложение
 
 Установите APK из [последнего релиза](https://github.com/Desm0nt/divinity-original-sin-2-port/releases/latest) или
-соберите сами (`build.bat`, см. *Building* в [README](../README.md)). В первый раз Android попросит разрешить установку
+соберите сами (`build.bat`, см. *Building* в [README-DOS2](../README-DOS2.md)). В первый раз Android попросит разрешить установку
 приложений из браузера или файлового менеджера.
 
 - Android 12 или новее: `DOS2-Mobile-v<версия>-arm64.apk`.

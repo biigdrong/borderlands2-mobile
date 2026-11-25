@@ -5,7 +5,7 @@
 #   guarded), output work/DOS2-port-debug-android10.apk. Its native objects and jni folder (work/jni29) are separate, so both APKs can be built
 #   side by side.
 #
-# Needs a configured native build tree in work/build-android (see README.md, "Building"), and:
+# Needs a configured native build tree in work/build-android (see README-DOS2.md, "Building"), and:
 #   JAVA_HOME        JDK 17+ (Gradle's Android plugin)
 #   ANDROID_HOME     Android SDK with build-tools (apksigner) and platform-tools (adb)
 #   GRADLE           Gradle launcher (default: gradle on PATH)
@@ -54,7 +54,7 @@ if ($Android10 -and -not (Test-Path $bdir/CMakeCache.txt) -and (Test-Path work/b
     & cmake @cfg *> work/logs/native-configure29.log
     if ($LASTEXITCODE) { throw "Configuring $bdir failed (work/logs/native-configure29.log)" }
 }
-if (-not (Test-Path $bdir/CMakeCache.txt)) { throw "Configure the native build first: cmake -S dm/android -B $bdir ... -DDM_GAME=$game$(if ($Android10) { ' -DANDROID_PLATFORM=android-29' }) (README.md, Building)" }
+if (-not (Test-Path $bdir/CMakeCache.txt)) { throw "Configure the native build first: cmake -S dm/android -B $bdir ... -DDM_GAME=$game$(if ($Android10) { ' -DANDROID_PLATFORM=android-29' }) (README-DOS2.md, Building)" }
 if (-not (Select-String -Path $bdir/CMakeCache.txt -Pattern "^DM_GAME:STRING=$([regex]::Escape($game))`$" -Quiet)) { throw "$bdir is not configured with -DDM_GAME=$game" }
 New-Item -ItemType Directory -Force work/logs, $jdir/arm64-v8a | Out-Null
 

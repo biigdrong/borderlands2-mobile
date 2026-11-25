@@ -150,7 +150,7 @@ The finished folder is **`work/DivinityOriginalSin2Mobile`** inside the setup fo
 ## Step 6. Install the app
 
 Install the APK from the [latest release](https://github.com/Desm0nt/divinity-original-sin-2-port/releases/latest), or
-build it yourself (`build.bat`, see *Building* in the [README](../README.md)). Android asks you to allow installing apps
+build it yourself (`build.bat`, see *Building* in the [README-DOS2](../README-DOS2.md)). Android asks you to allow installing apps
 from your browser or file manager the first time.
 
 - Android 12 or newer: `DOS2-Mobile-v<version>-arm64.apk`.
