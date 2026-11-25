@@ -10,6 +10,7 @@ whoever picks the work up next.
 - Shader tooling: `tools/bl2_shader_jobs.py`, `tools/bl2_shader_scan.py`, `tools/bl2_ue3_shaders.py`,
   plus the shared `dm/gfx/tools/dmsh_vk*.py` translators;
 - Android UI: `Bl2Cheat*`, `Bl2Gfx`, `Bl2Ini`, the touch pad, the official launcher icon;
+- Cheat / AI-teammate console (`cheat.req` → game thread): see `docs/BL2-CHEATS.md`;
 - CI: `.github/workflows/build-apk.yml` (artifact + tag release).
 
 **Not in this repo** (by design): game data (`romfs/`, `aoc/`, `patch-cn/`), translated
