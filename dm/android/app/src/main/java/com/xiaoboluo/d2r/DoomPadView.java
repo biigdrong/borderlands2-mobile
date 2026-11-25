@@ -183,7 +183,9 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
             ctls.add(new Ctl("b", "B", B, KeyEvent.KEYCODE_ESCAPE, ABXY_FX, ABXY_FY, 0, GAP, 26, 26, false)); ctls.add(new Ctl("y", "Y", B, KeyEvent.KEYCODE_F, ABXY_FX, ABXY_FY, -GAP, 0, 26, 26, false));
             // right thumb: MELEE (R3) next to where FIRE used to be
             ctls.add(new Ctl("rs", "R3", B, KeyEvent.KEYCODE_BUTTON_THUMBR, 0.86f, 0.79f, -88, 14, 28, 28, false));
-            ctls.add(new Ctl("r", "R", B, KeyEvent.KEYCODE_E, 0.84f, 0.09f, 0, 0, 26, 26, false)); ctls.add(new Ctl("zr", "ZR", B, KeyEvent.KEYCODE_CTRL_LEFT, 0.95f, 0.09f, 0, 0, 28, 28, false));
+            ctls.add(new Ctl("r", "R", B, KeyEvent.KEYCODE_E, 0.84f, 0.09f, 0, 0, 26, 26, false)); Ctl zr = new Ctl("zr", "ZR", B, KeyEvent.KEYCODE_CTRL_LEFT, 0.95f, 0.09f, 0, 0, 28, 28, false);
+            if (DmActivity.BL2) zr.look = true;   // [BL2] 按住 ZR（开火）时同一根手指拖动也能转视角
+            ctls.add(zr);
             ctls.add(new Ctl("plus", "+", B, KeyEvent.KEYCODE_TAB, 0.62f, 0.09f, 0, 0, 22, 22, false));
             // left: the d-pad (one control, 8 directions; drawn as DOOM's four buttons), L / ZL, "-", the gear in the middle
             if (split) {   // "split" (editor toggle): the d-pad's four buttons are separate controls, each placed on its own
@@ -834,7 +836,7 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
         line.setColor(0x90ffffff); line.setAlpha(Math.round(0x90 * al)); text.setColor(0xd0ffffff); text.setAlpha(Math.round(0xd0 * al));
         if (k.kind == K_STICK) {
             float R = b[2];
-            fill.setColor(0x20ffffff); fill.setAlpha(Math.round(0x20 * al)); c.drawCircle(x, y, R, fill); c.drawCircle(x, y, R, line);
+            fill.setColor(0x00000000); fill.setAlpha(0); c.drawCircle(x, y, R, fill); c.drawCircle(x, y, R, line);
             fill.setColor(held ? 0x80ffffff : 0x40ffffff); fill.setAlpha(Math.round((held ? 0x80 : 0x40) * al)); c.drawCircle(x + k.kx, y + k.ky, R * 0.42f, fill);
             return;
         }
@@ -847,7 +849,7 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
                 c.drawText(lab[i], x + d[i][0], y + d[i][1] + text.getTextSize() * 0.35f, text); }
             return;
         }
-        int base = held ? 0x80ffffff : (k.kind == K_CHEAT ? 0x45ffb347 : (k.look ? 0x40ff6040 : 0x00000000));   // [BL2] AI 按钮染成橙色，其余按钮底色透明
+        int base = held ? 0x80ffffff : (k.kind == K_CHEAT ? 0x45ffb347 : 0x00000000);   // [BL2] AI 按钮橙色，其余按钮（含 ZR）底色透明
         fill.setColor(base); fill.setAlpha(Math.round(((base >>> 24) & 0xff) * al));
         text.setTextSize(Math.max(10 * dp, Math.min(15 * dp * sizeK, Math.min(b[2], b[3]) * 0.75f)));
         if (b[2] == b[3]) { c.drawCircle(x, y, b[2], fill); c.drawCircle(x, y, b[2], line); }
