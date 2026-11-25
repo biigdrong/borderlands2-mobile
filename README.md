@@ -32,6 +32,20 @@ SM8845 / Adreno 829 / Android 17**. Other GPUs and drivers are not guaranteed to
   area.
 - **Code only** — no game data, no keys and no game-derived APKs in this repository.
 
+## Screenshots
+
+Captured on the phone (realme RMX8899, Snapdragon SM8845, Adreno 829) at the screen's native
+aspect. The counter in the top-left corner is the port's own FPS overlay; most of these
+shots show the game holding 60 FPS, and the transparent pad is the port's touch layout.
+
+| | |
+|---|---|
+| ![Borderlands 2 title screen running on Android](docs/images/bl2/bl2-title.jpg) | ![Touch pad over the title screen](docs/images/bl2/bl2-touch-title.jpg) |
+| ![Character select, wide view](docs/images/bl2/bl2-character-select-a.jpg) | ![Character select, canyon view](docs/images/bl2/bl2-character-select-b.jpg) |
+| ![First-person gameplay, 60 FPS](docs/images/bl2/bl2-gameplay-01.jpg) | ![First-person gameplay, 61 FPS](docs/images/bl2/bl2-gameplay-02.jpg) |
+| ![Weapon reload prompt in-game](docs/images/bl2/bl2-gameplay-03.jpg) | ![Sanctuary interior with the touch pad](docs/images/bl2/bl2-sanctuary.jpg) |
+| ![Full button mapping over the game](docs/images/bl2/bl2-button-map.jpg) | ![Widescreen main menu with the touch pad](docs/images/bl2/bl2-widescreen.jpg) |
+
 ## Start here
 
 | Document | Contents |
