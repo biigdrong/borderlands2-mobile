@@ -254,7 +254,7 @@ void front_android_sensors(int on) {
         if (!e) e = "0";   // [XC2] the game imports no six-axis entry point (r21/r22): no sensor sampling unless DM_GYRO=1
                            // [D3] imports the six-axis reads, but has no gyro aiming on the Switch: zero states unless DM_GYRO=1
 #endif
-        disabled = e && !atoi(e); if (disabled) dm_sixaxis_available(0); }
+        disabled = e && *e && !atoi(e); if (disabled) dm_sixaxis_available(0); }
     if (disabled) return;
     atomic_store(&g_sensors_want, on != 0);
     pthread_once(&once, sensor_start);
