@@ -58,6 +58,7 @@ DM_PRESENT_MAX_HZ=240
 DM_BL2_WIDE_PRESENT=1
 DM_LOG=0
 DM_3D_SCALE=1.0
+DM_GYRO=1
 ```
 
 - `DM_BL2_WIDE_PRESENT=1` — present at the screen aspect instead of the 16:9 window.
@@ -66,6 +67,8 @@ DM_3D_SCALE=1.0
 - `DM_3D_SCALE=1.0` — the game's built-in 3D render scale. The port defaults it to `0.75`
   on phones; `1.0` = the Switch original, sharper but heavier. `0.9` / `0.85` are good
   middle grounds. `DM_3D_SCALE_DYN=0` disables the automatic drop on dropped frames.
+- `DM_GYRO=1` — six-axis sensor from the phone's gyroscope (tilt/gyro aiming). Unset is
+  on; `DM_GYRO=0` turns it off. XC2/D3 default to off in the code.
 - `DM_VK_DRIVER`, `DM_3D_SCALE`, `DM_*` are all documented by their use sites under `dm/host`.
 
 ## 4. Build the APK
