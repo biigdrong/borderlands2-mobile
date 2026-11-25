@@ -59,7 +59,8 @@ android {
         versionName portVer ?: '2.0.1'
         ndk { abiFilters 'arm64-v8a' }
         if (!prebuilt) externalNativeBuild { cmake {
-            arguments "-DDM_GEN_DIR=${project.findProperty('dmGenDir') ?: ''}"
+            arguments "-DDM_GAME=${project.findProperty('dmGame') ?: 'd2r'}"
+      arguments "-DDM_GEN_DIR=${project.findProperty('dmGenDir') ?: ''}"
             if (project.findProperty('dmPython')) arguments "-DPython3_EXECUTABLE=${project.property('dmPython')}"
             targets 'dm'
         } }
