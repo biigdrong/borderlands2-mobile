@@ -84,6 +84,18 @@ jobs:
           EOF
           ls -l ci-gen
 
+      - name: Restore fixed debug keystore
+        env:
+          KEY_B64: ${{ secrets.DM_DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEY_B64" ]; then
+            mkdir -p ~/.android
+            printf '%s' "$KEY_B64" | base64 -d > ~/.android/debug.keystore
+            ls -l ~/.android/debug.keystore
+          else
+            echo "no DM_DEBUG_KEYSTORE_B64; the APK will get a random debug signature"
+          fi
+
       - name: Build debug APK
         run: |
           gradle -p dm/android :app:assembleDebug \
