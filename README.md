@@ -46,6 +46,24 @@ shots show the game holding 60 FPS, and the transparent pad is the port's touch 
 | ![Weapon reload prompt in-game](docs/images/bl2/bl2-gameplay-03.jpg) | ![Sanctuary interior with the touch pad](docs/images/bl2/bl2-sanctuary.jpg) |
 | ![Full button mapping over the game](docs/images/bl2/bl2-button-map.jpg) | ![Widescreen main menu with the touch pad](docs/images/bl2/bl2-widescreen.jpg) |
 
+## Before you change anything
+
+> [!WARNING]
+> **Do not poke at settings you do not understand, and do not run console commands you do not
+> understand.**
+>
+> - **Settings → Graphics** — the port's own switches (`DM_3D_SCALE`, present mode, graphics
+>   slots) change how the game renders. Random values can give you a black screen, a stretched
+>   picture or a slideshow.
+> - **Console commands** — `dm/cheat.req` can crash the game or damage a save. Back up
+>   `Download/Borderlands2Mobile/saves/` before experimenting, and only run the commands you
+>   actually understand ([docs/BL2-CHEATS.md](docs/BL2-CHEATS.md)).
+> - **If the picture breaks**, press the game's own **Restore Default Graphics** first, then undo
+>   your last `dm/env` change. A broken picture is almost always a setting, not a broken port.
+>
+> 中文：设置/图形里不懂的选项不要乱点，控制台命令不懂的不要乱用；画面出错时先点游戏里的
+> “恢复默认图形”，再回退 `dm/env` 的改动。
+
 ## Start here
 
 | Document | Contents |
