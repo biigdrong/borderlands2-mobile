@@ -2,7 +2,7 @@
 
 This page is kept from d2r-mobile, the base of this port, for its license summary of the third-party code in `dm/`.
 Its original build instructions (Mac / iOS / Xcode) do not apply to Divinity Original Sin 2 Mobile and were removed; its build is described in the root
-[README.md](../README.md) ("Building"), and the code ported for the Switch ports (DOOM, Diablo III, Torchlight II, Divinity: Original Sin 2) is listed in [THIRD_PARTY.md](THIRD_PARTY.md).
+[README-DOS2.md](../README-DOS2.md) ("Building"), and the code ported for the Switch ports (DOOM, Diablo III, Torchlight II, Divinity: Original Sin 2) is listed in [THIRD_PARTY.md](THIRD_PARTY.md).
 
 ## Third-party code in this repository
 
