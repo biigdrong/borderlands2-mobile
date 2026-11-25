@@ -1036,6 +1036,7 @@ HLE_FORCE("_ZN2nn3hid23GetSixAxisSensorHandlesEPNS0_19SixAxisSensorHandleEiRKjNS
     return k;
 }
 HLE_FORCE("_ZN2nn3hid18StartSixAxisSensorERKNS0_19SixAxisSensorHandleE", "six-axis sensor: the front end samples while the app is in front", void, h_hid_SixStart, const uint32_t *h) { (void)h; }
+HLE_FORCE("_ZN2nn3hid21IsSixAxisSensorAtRestERKNS0_19SixAxisSensorHandleE", "six-axis sensor: never at rest (the phone's gyro keeps sampling)", bool, h_hid_SixAtRest, const uint32_t *h) { (void)h; return false; }
 HLE_FORCE("_ZN2nn3hid21GetSixAxisSensorStateEPNS0_18SixAxisSensorStateERKNS0_19SixAxisSensorHandleE", "six-axis sensor state: the phone's gyroscope / accelerometer", void, h_hid_SixState, SixAxisState *s, const uint32_t *h) { six_gate(); int why = six_fill(s, *h); six_trace(s, *h, why); }
 #endif
 #else   // D2R: unchanged

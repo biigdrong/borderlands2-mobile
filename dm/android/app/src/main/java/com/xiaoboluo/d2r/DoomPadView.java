@@ -205,6 +205,7 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
                 }
                 Ctl k = new Ctl(c.name, c.kind == PadTheme.MENU ? "⚙" : c.label, kind, kind == K_MENU ? SETTINGS : keyOf(c.btn), c.ax, c.y, c.x, 0, c.w / 2, c.h / 2, true);
                 if (kind == K_STICK) { k.right = c.kind == PadTheme.STICK_R; k.clickKey = k.right ? KeyEvent.KEYCODE_BUTTON_THUMBR : KeyEvent.KEYCODE_BUTTON_THUMBL; k.grab = 1.15f; }
+                if (DmActivity.BL2 && k.key == KeyEvent.KEYCODE_CTRL_LEFT) k.look = true;   // [BL2] 按住 ZR（开火）时，同一根手指拖动也能转视角
                 ctls.add(k);
             }
         }
@@ -841,12 +842,12 @@ public class DoomPadView extends View implements FrontMenu.Pad, PadSurface.Paint
             float g = b[2] * GAP / (GAP + 24), r = b[2] - g; text.setTextSize(Math.max(10 * dp, r * 0.62f));
             float[][] d = {{0, -g}, {g, 0}, {0, g}, {-g, 0}}; String[] lab = {"↑", "→", "↓", "←"}; int[] bit = {PadTheme.UP, PadTheme.RIGHT, PadTheme.DOWN, PadTheme.LEFT};
             for (int i = 0; i < 4; i++) { boolean on = held && (k.dirBits & bit[i]) != 0;
-                fill.setColor(on ? 0x80ffffff : 0x30ffffff); fill.setAlpha(Math.round((on ? 0x80 : 0x30) * al));
+                fill.setColor(on ? 0x80ffffff : 0x00000000); fill.setAlpha(Math.round((on ? 0x80 : 0) * al));
                 c.drawCircle(x + d[i][0], y + d[i][1], r, fill); c.drawCircle(x + d[i][0], y + d[i][1], r, line);
                 c.drawText(lab[i], x + d[i][0], y + d[i][1] + text.getTextSize() * 0.35f, text); }
             return;
         }
-        int base = held ? 0x80ffffff : (k.kind == K_CHEAT ? 0x45ffb347 : (k.look ? 0x40ff6040 : 0x30ffffff));   // [BL2] AI 按钮染成橙色，好认
+        int base = held ? 0x80ffffff : (k.kind == K_CHEAT ? 0x45ffb347 : (k.look ? 0x40ff6040 : 0x00000000));   // [BL2] AI 按钮染成橙色，其余按钮底色透明
         fill.setColor(base); fill.setAlpha(Math.round(((base >>> 24) & 0xff) * al));
         text.setTextSize(Math.max(10 * dp, Math.min(15 * dp * sizeK, Math.min(b[2], b[3]) * 0.75f)));
         if (b[2] == b[3]) { c.drawCircle(x, y, b[2], fill); c.drawCircle(x, y, b[2], line); }
