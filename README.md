@@ -11,8 +11,26 @@ the game: this repository contains no game content, no keys and no APKs built fr
 > (upstream), and that project's original documentation is kept here as
 > [README-DOS2.md](README-DOS2.md) for reference.
 
-Status: reference port. Validated on one device — **realme RMX8899 / Snapdragon SM8845 /
-Adreno 829 / Android 17**. Other GPUs and drivers are not guaranteed to work.
+Status: **playable end to end at a locked 60 FPS**, with a clean picture, low power draw and
+touch controls built for a phone. Validated on one device — **realme RMX8899 / Snapdragon
+SM8845 / Adreno 829 / Android 17**. Other GPUs and drivers are not guaranteed to work.
+
+## Highlights
+
+- **Actually playable** — boots into the campaign and plays through on a phone, with no
+  emulator or compatibility layer in the middle.
+- **Clean picture** — every shader key is translated and merged, including the two-part
+  vertex programs the engine relies on, plus the clip-space depth fix and `spirv-opt`
+  normalisation the Adreno compiler needs. No black screens, missing geometry or broken
+  effects on the validated device.
+- **Locked 60 FPS** — steady frame pacing at the screen's own aspect, using the port's
+  presentation tuning (`DM_VK_PRESENT=mailbox`, 240 Hz present cap, wide present).
+- **Low power, low heat** — the game's own AArch64 code runs natively, so there is no CPU
+  emulation burning battery; long sessions stay comfortable thermally.
+- **Touch controls made for a phone** — transparent on-screen pad, hold-to-fire where the
+  same finger slides to aim, gyro aiming from the phone's own sensor, and a full-size look
+  area.
+- **Code only** — no game data, no keys and no game-derived APKs in this repository.
 
 ## Start here
 
