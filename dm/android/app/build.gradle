@@ -86,6 +86,14 @@ android {
         storeFile file(releaseKey); storeType 'pkcs12'
         storePassword System.getenv('DM_ANDROID_KEY_PASS'); keyAlias System.getenv('DM_ANDROID_KEY_ALIAS'); keyPassword System.getenv('DM_ANDROID_KEY_PASS')
     } }
+    // [CI] -PdmDebugKeystore=<file>: pin the debug signing key. Without it AGP picks the
+    // runner's own debug.keystore, which is different on every CI run, so Release APKs
+    // could not be installed over a previous one.
+    def debugKey = project.findProperty('dmDebugKeystore')
+    if (debugKey) signingConfigs { debug {
+        storeFile file(debugKey); storeType 'jks'
+        storePassword 'android'; keyAlias 'androiddebugkey'; keyPassword 'android'
+    } }
     buildTypes {
         debug { debuggable false }
         release { minifyEnabled false; if (releaseKey) signingConfig signingConfigs.release }

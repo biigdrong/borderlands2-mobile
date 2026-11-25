@@ -100,7 +100,7 @@ jobs:
         run: |
           gradle -p dm/android :app:assembleDebug \
             -PdmGame=bl2 -PdmAppId=org.bl2.port -PdmPython=python3 \
-            -PdmGenDir="$PWD/ci-gen" --console plain
+            -PdmGenDir="$PWD/ci-gen" -PdmDebugKeystore="$HOME/.android/debug.keystore" --console plain
 
       - name: Collect APK
         run: |
