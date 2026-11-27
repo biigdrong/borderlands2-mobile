@@ -65,7 +65,8 @@ translate the shaders) and assembles `dm\out` + `dm\shaders` into one folder:
 
 ```powershell
 $env:DM_PYTHON = 'C:\path\to\python.exe'   # Python 3.10+ with capstone and lz4
-powershell -File tools\setup_bl2.ps1 -Romfs <dump>\romfs -Exefs <dump>\exefs -OutDir <phone-dm>
+powershell -File tools\setup_bl2.ps1 -Exefs <dump>\exefs -Decoded <dump>\decoded `
+    -GlobalCache <dump>\GlobalShaderCache-Switch.bin -OutDir <phone-dm>
 ```
 
 It expects the ExeFS modules (`main`, `sdk`, NSO) to be extracted already; it does not unpack
@@ -150,19 +151,30 @@ The game's shaders are compiled for NVN/Maxwell and must be translated offline i
 `<key>.xgs` bundles, one per shader, placed in `dm/shaders/`. None of that output is
 committed (`.xgs` is in `.gitignore`; it is derived from game data).
 
-Typical loop:
+The pipeline has four steps, and step 1 is the one people miss:
 
-1. Extract jobs from your dump:
+1. **Decode the UE3 packages.** BL2 stores them Oodle-compressed and only the game's own
+   decoder can read them, so the decoder is run once out of the game:
    ```bash
-   python tools/bl2_shader_jobs.py <romfs-root> work/bl2/shaders-jobs
+   python tools/bl2_oodle_job.py build work/bl2/oodle/job <package.xxx>...
+   # then run the app once with DM_OODLE_JOB=<abs path to work/bl2/oodle/job>;
+   # hle_oodle.c replays the decoder right before nnMain, writes job.out and exits
+   python tools/bl2_oodle_job.py rebuild work/bl2/oodle/job.out work/bl2/oodle/job.json work/bl2/decoded
    ```
-2. Translate to bundles (`XLATE` = the translator built above, plus `SPIRV_OPT` / `SPIRV_VAL`):
+2. **Collect shader records** from the decoded packages plus `GlobalShaderCache-Switch.bin`:
+   ```bash
+   python tools/bl2_shader_jobs.py work/bl2/decoded <GlobalShaderCache-Switch.bin> work/bl2/shaders-jobs
+   ```
+3. **Translate** to `<key>.xgs` (`XLATE` = the translator built above, plus `SPIRV_OPT` / `SPIRV_VAL`):
    ```bash
    XLATE=... J=8 python dm/gfx/tools/dmsh_vk_xc2.py work/bl2/shaders-jobs work/bl2/shaders-xgs
    ```
-3. Push `*.xgs` to `dm/shaders/` on the phone and restart the game.
-4. Anything still missing is dumped at runtime to `dm/missing/<key>.rec`
-   (only while `DM_LOG=1`); translate those and repeat.
+   To redo only some keys, pass them after the output directory:
+   `... dmsh_vk_xc2.py <jobs> <out> <key1> <key2> ...`
+4. Push `*.xgs` to `dm/shaders/` on the phone and restart the game.
+5. Anything still missing is dumped at runtime to `dm/missing/<key>.rec`
+   (only while `DM_LOG=1`). The dump is a bare record without its `jobs.tsv` metadata, so the
+   practical fix is to re-run steps 1-3 — the package already contains that shader.
 
 Notes learned on this title:
 
@@ -261,7 +273,49 @@ device is already GPU-bound.**
 If the frame rate is unstable but the GPU is not pegged, try `3` slots first; if the device
 gets hot or the picture stutters more, go back to `2` and lower `DM_3D_SCALE`.
 
-## 10. Do not commit
+## 10. Visible rendering problems
+
+Symptom → cause → fix, from what this port actually ran into.
+
+### Light shafts are missing or black
+
+A light shaft is a separate additive pixel program. Without its bundle the beam does not draw,
+or draws black.
+
+1. Set `DM_LOG=1`, reproduce, and look for `missing shader <key>` in the log and
+   `dm/missing/<key>.rec`.
+2. Re-run the shader pipeline (§5) so that key gets a bundle, push, restart.
+3. If the bundle exists but the beam is still black, it is usually the two-part vertex program:
+   keep `vertex_ab` merging on and re-translate — translating part A alone makes every pixel
+   pipeline in that group fail on Adreno.
+
+### Muzzle flash or tracers missing, or drawn as a black quad
+
+Same class: an additive/particle pixel program with no bundle, or one whose depth behaviour
+depends on the clip-space z fix.
+
+1. Same triage as above.
+2. Make sure the module went through `spirv-opt -O --preserve-bindings`; without it the Adreno
+   compiler rejects some modules and the effect disappears.
+
+### Part of a DLC map is completely black
+
+This is the "DLC shaders were never translated" case, not a broken level.
+
+- The base RomFS and `aoc` are separate package sets. A pipeline run over the base packages
+  alone leaves the DLC programs out, and only the DLC surfaces stay black.
+- Fix: run steps 1-3 of §5 over the DLC packages as well, then merge the resulting `*.xgs` into
+  `dm/shaders` — the key namespace is the same, so a plain copy is enough.
+- Confirm with `DM_LOG=1`: DLC-only keys show up in `dm/missing/` only when no bundle exists.
+
+### Two rules that save time
+
+- A **missing** bundle means missing geometry or effects; a **wrong** bundle means garbage or a
+  rejected pipeline. The log distinguishes them, so read it before re-translating everything.
+- After any shader change, delete `dm/vk-pipeline-cache.bin` and `dm/vk-pipeline-list.bin` on the
+  phone; otherwise stale pipelines keep being reused and the fix looks like it did nothing.
+
+## 11. Do not commit
 
 `*.apk`, `*.xgs`, `*.rec`, `*.spv`, `*.so`, `*.log`, `*.PAK`, `romfs/`, `aoc/`, `patch-cn/`,
 `patch-res/`, `work/`, `dist/`, save files, keys. The `.gitignore` already covers these — do

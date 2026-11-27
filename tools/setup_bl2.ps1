@@ -4,8 +4,9 @@
 # into the three things the app needs besides the APK.
 #
 # Prerequisites (see README-BL2.md):
-#   * <Romfs>       the game RomFS root, the folder that contains WillowGame/ (21-22 GB)
 #   * <Exefs>       the extracted game program: main, sdk, main.npdm (NSO modules)
+#   * <Decoded>     the Oodle-decoded UE3 packages (README-BL2.md section 5, step 1)
+#   * <GlobalCache> GlobalShaderCache-Switch.bin from the dump
 #   * Python 3.10+  with capstone and lz4   (DM_PYTHON, deps\venv or tools\.runtime\venv)
 #   * .NET 10 SDK   only for the shader translator (dotnet build, see README-BL2.md section 5)
 #   * SPIRV-Tools   spirv-opt / spirv-val (ANDROID_NDK_HOME shader-tools, or SPIRV_OPT / SPIRV_VAL)
@@ -18,13 +19,15 @@
 #
 # Usage:
 #   powershell -File tools\setup_bl2.ps1
-#   powershell -File tools\setup_bl2.ps1 -Romfs D:\dump\romfs -Exefs D:\dump\exefs -OutDir D:\phone
+#   powershell -File tools\setup_bl2.ps1 -Exefs D:\dump\exefs -Decoded D:\dump\decoded `
+#       -GlobalCache D:\dump\GlobalShaderCache-Switch.bin -OutDir D:\phone
 #   powershell -File tools\setup_bl2.ps1 -SkipShaders -Push -Serial <adb-serial>
 
 [CmdletBinding()]
 param(
-    [string]$Romfs = '',
     [string]$Exefs = '',
+    [string]$Decoded = '',
+    [string]$GlobalCache = '',
     [string]$OutDir = '',
     [int]$Jobs = 8,
     [switch]$SkipShaders,
@@ -35,7 +38,6 @@ param(
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
 
-if (-not $Romfs)  { $Romfs  = Join-Path $Root 'work\bl2\romfs' }
 if (-not $Exefs)  { $Exefs  = Join-Path $Root 'work\bl2\exefs' }
 if (-not $OutDir) { $OutDir = Join-Path $Root 'work\bl2\phone' }
 
@@ -74,9 +76,6 @@ function Find-Spirv([string]$name) {
     throw "$name not found. Set $envVar or ANDROID_NDK_HOME (SPIRV-Tools ship with the NDK)."
 }
 
-if (-not (Test-Path (Join-Path $Romfs 'WillowGame'))) {
-    throw "Romfs not found or incomplete: $Romfs (expected $Romfs\WillowGame). See README-BL2.md section 2."
-}
 foreach ($m in @('main', 'sdk')) {
     if (-not (Test-Path (Join-Path $Exefs $m))) { throw "Missing NSO module: $Exefs\$m (README-BL2.md section 1)." }
 }
@@ -99,6 +98,11 @@ Remove-Item Env:DM_TARGET
 if ($SkipShaders) {
     Write-Host "== 2/3  shader bundles skipped (-SkipShaders)" -ForegroundColor Yellow
 } else {
+    if (-not $Decoded -or -not $GlobalCache) {
+        throw ('Shader translation needs -Decoded <decoded packages> and -GlobalCache ' +
+               '<GlobalShaderCache-Switch.bin>. Decode them first (README-BL2.md section 5, step 1), ' +
+               'or pass -SkipShaders.')
+    }
     $xlate = Find-Xlate
     $opt = Find-Spirv 'spirv-opt'
     $val = Find-Spirv 'spirv-val'
@@ -107,8 +111,8 @@ if ($SkipShaders) {
     $env:SPIRV_VAL = $val
     $env:J = "$Jobs"
 
-    Write-Host "== 2/3  extracting shader jobs from the RomFS" -ForegroundColor Cyan
-    & $py (Join-Path $Root 'tools\bl2_shader_jobs.py') $Romfs $jobsDir
+    Write-Host "== 2/3  collecting shader records from the decoded packages" -ForegroundColor Cyan
+    & $py (Join-Path $Root 'tools\bl2_shader_jobs.py') $Decoded $GlobalCache $jobsDir
     if ($LASTEXITCODE -ne 0) { throw 'bl2_shader_jobs.py failed' }
 
     Write-Host "== 3/3  translating shaders to Vulkan (J=$Jobs, this takes a while)" -ForegroundColor Cyan
