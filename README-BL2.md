@@ -78,31 +78,22 @@ DM_GYRO=1
 directory with four files derived from game data, so they are not committed:
 `dm_vault_tab.h`, `dm_hud_exp.h`, `dm_bright_levels.inc`, `dm_touch_native_art.c`.
 
-There are two ways to get them:
+**The DOS2/D3 generators in `dm/host/Makefile` do not work on BL2.** They read
+`romfs/data/build_manifest.psv` and `romfs/global/excel/*.txt`, which the BL2 RomFS does not
+contain; run against a full BL2 dump, all of them stop with `FileNotFoundError`.
 
-1. **From a game-data build** (use this when you want the real vault / HUD tables). The
-   generators live in `dm/host/Makefile` and were written for the D3 / DOS2 data layout:
-   ```bash
-   python dm/ios/tools/gen_vault_table.py <romfs> > <gen>/dm_vault_tab.h
-   python dm/ios/tools/gen_hud_exp.py     <romfs> > <gen>/dm_hud_exp.h
-   python tools/gen_bright_levels.py      <romfs> > <gen>/dm_bright_levels.inc
-   python dm/ios/tools/native_art/generate.py <romfs> --output-dir <gen>
-   ```
-2. **CI stand-ins** — this is what the published APK is built with, and it needs no game
-   data. Copy the four heredocs verbatim from the `Generated host headers (DM_GEN_DIR)` step
-   in `.github/workflows/build-apk.yml` into your `<gen>` directory. They define empty tables
-   that load from `dm/derived.tsv` at run time when that file is present, and stay empty for
-   BL2 otherwise.
-
-Then point the build at the directory:
+What does work — and what the published APK is built with — is the stand-in set in
+`.github/workflows/build-apk.yml`, in the `Generated host headers (DM_GEN_DIR)` step. Create
+a directory, save those four files from that step verbatim (`dm_bright_levels.inc` is empty),
+then point the build at it:
 
 ```powershell
 $env:DM_GEN_DIR = 'C:\path\to\gen'
 ```
 
 `tools/build_apk.ps1` passes it to gradle as `-PdmGenDir` (without it, CMake stops with
-"要 -DDM_GEN_DIR=..."). The four files are inputs of the host/HUD/vault/brightness code
-shared by all games; for BL2 they do not carry BL2-specific data.
+"要 -DDM_GEN_DIR=..."). The stand-ins define empty tables that load from `dm/derived.tsv` at
+run time when that file exists; for BL2 they stay empty, and that is how the release APK runs.
 
 ```powershell
 $env:ANDROID_HOME = 'C:\path\to\android-sdk'
