@@ -46,6 +46,31 @@ data packs built from them.”
   saves/                              # your saves
 ```
 
+### What must be there, and what can be deleted
+
+The APK is only the host. A folder that actually boots needs the items marked **required**:
+
+| Path | Needed for | Can a build reproduce it? |
+| --- | --- | --- |
+| `romfs/`, `aoc/` | **required** — boot and assets | No. Your own dump. |
+| `dm/out/{main,sdk}.patched.bin` + `*.fixups.tsv`, `*.gates.tsv` | **required** — the host loads these at boot | **Yes** — `dm/tools/patch_nso.py` with `DM_TARGET=android`. Re-running it produces byte-identical output (verified by SHA-256 against the reference dump). |
+| `dm/shaders/*.xgs` | **required** — rendering | Yes, from the dump (`bl2_shader_jobs.py` + `dmsh_vk_xc2.py`, §5). Missing ones can be dumped at run time, but that is a long loop. |
+| `dm/env` | optional | Hand-written; the defaults are fine. |
+| `patch-cn/`, `patch-res/` | optional — localization | No. Third-party overlays (§6). |
+| `saves/` | optional | No. |
+| `dm/capture/`, `dm/dump/`, `dm/spv-dump/`, `vk-pipeline-*.bin`, `snap/`, `logs/`, `cheat.*`, `probe.*`, `pushed.txt` | nothing | No. Runtime debug output and caches; delete freely. |
+
+`tools/setup_bl2.ps1` runs the first two reproducible steps in order (patch the program, then
+translate the shaders) and assembles `dm\out` + `dm\shaders` into one folder:
+
+```powershell
+$env:DM_PYTHON = 'C:\path\to\python.exe'   # Python 3.10+ with capstone and lz4
+powershell -File tools\setup_bl2.ps1 -Romfs <dump>\romfs -Exefs <dump>\exefs -OutDir <phone-dm>
+```
+
+It expects the ExeFS modules (`main`, `sdk`, NSO) to be extracted already; it does not unpack
+NSP/NSZ packages.
+
 ## 3. `dm/env` — verified configuration
 
 ```
