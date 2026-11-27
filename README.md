@@ -72,6 +72,10 @@ shots show the game holding 60 FPS, and the transparent pad is the port's touch 
 | [docs/BL2-PORT-STATUS.md](docs/BL2-PORT-STATUS.md) | What works, what is still open (HD textures, per-device validation) |
 | [docs/BL2-CHEATS.md](docs/BL2-CHEATS.md) | The `cheat.req` console and the AI-teammate hooks |
 | [docs/BL2-NPU-AI-TEAMMATE.md](docs/BL2-NPU-AI-TEAMMATE.md) | Design discussion: an NPU-driven AI teammate that does not reuse the game's AI |
+| [Discussion #22](https://github.com/biigdrong/borderlands2-mobile/discussions/22) | AI / NPU teammate — open questions and alternative approaches |
+
+Questions about the NPU teammate design go to Discussion #22 rather than the issue tracker;
+it keeps the AI thread in one place.
 
 ## What it is
 
