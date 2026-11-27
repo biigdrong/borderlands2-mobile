@@ -202,7 +202,66 @@ Other GPUs, drivers, Android versions and resolutions are **not guaranteed**: sh
 modules may be rejected by a different driver, performance/thermal headroom differs,
 and touch layout / save paths may need adjustment. Treat this as a reference port.
 
-## 8. Do not commit
+## 8. If the build fails
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| CMake stops with `要 -DDM_GEN_DIR=...` | `DM_GEN_DIR` not set | use the CI stand-in headers (§4) |
+| `No .NET SDKs were found` | only the .NET **runtime** is installed | install the .NET 10 **SDK** |
+| `net10.0 is not supported` (NETSDK1045) | older SDK | `dmsh_xlate.csproj` needs .NET 10 |
+| `XLATE=<executable> is required` | translator not built, or `XLATE` unset | `dotnet build dm/gfx/tools/dmsh_xlate/dmsh_xlate.csproj -c Release`, then set `XLATE` (§5) |
+| `spirv-opt` / `spirv-val` not found | `SPIRV_OPT` / `SPIRV_VAL` unset | point them at the NDK `shader-tools/<host>/` binaries |
+| `patch_nso.py` aborts on a registered cut | the NSO is not the expected build (wrong dump or a modified one) | use an unmodified dump of this title |
+| Gradle: `SDK location not found` | `ANDROID_HOME` / `local.properties` missing | set `ANDROID_HOME` (§4) |
+| `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | the APK is signed with a different key | uninstall the old app once — saves live in `Download/Borderlands2Mobile/saves` and are not removed |
+| App starts, then black screen; log says `out/main.patched.bin` missing | `dm/out` was not pushed | run `tools/setup_bl2.ps1` and push `dm/out` (§2) |
+| Boots but the picture is missing / empty surfaces | shader bundles missing | translate `*.xgs`; with `DM_LOG=1` the missing ones are dumped to `dm/missing/*.rec` |
+| Crashes on boot on an untested GPU | driver or GPU not supported | try another `DM_VK_DRIVER`, attach the logs (§7) |
+
+`tools/setup_bl2.ps1 -SkipShaders` is the quickest way to check whether the first two required
+items are correct before spending time on a full shader translation.
+
+## 9. Frame rate, buffering and per-device settings
+
+**60 FPS is the target, not a guarantee.** Only Adreno 7xx / 8xx has been validated. Mali
+(Exynos, Dimensity, Tensor), Xclipse and PowerVR are untested and may sit at 30-45 FPS, or
+fail to boot at all.
+
+| Setting | What it does | Trade-off |
+| --- | --- | --- |
+| `DM_3D_SCALE` | 3D render scale, 0.5-1.0 (default `0.75` on phones). UI and text stay sharp | lower = more FPS, softer 3D picture |
+| `DM_3D_SCALE_DYN` | steps the scale down automatically when frames are dropped (on by default) | `=0` pins the scale |
+| `DM_GFX_SLOTS` | frame-slot ring: `2` (default) or `3` | see below |
+| `DM_VK_PRESENT` | `fifo` (default: the queue waits for the display), `mailbox`, `immediate` | mailbox / immediate avoid queue stalls |
+| `DM_PRESENT_MAX_HZ` | caps present pacing: 30 / 60 / 90 / 120 | 30 runs cooler and steadier on weak phones |
+
+**Double vs triple buffering (`DM_GFX_SLOTS`)**
+
+- `2` (double buffering, the default): one frame resource fewer, the cheapest in memory, but
+  the CPU has to wait for the GPU to finish with the previous slot before recording the next
+  frame. Frame times are less even, so dips are more visible.
+- `3` (triple buffering): while frame N is being recorded, frame N-2 is still on the GPU, so
+  CPU translation and GPU rendering overlap. Frame times are smoother; the cost is one extra
+  frame's worth of GPU memory and bandwidth.
+- `4` is accepted but not recommended — the returns stop and memory pressure grows.
+
+Rule of thumb: **3 slots on anything with headroom, 2 slots when GPU memory is tight or the
+device is already GPU-bound.**
+
+**Starting points per device class** (a starting point, not a measurement — tune per phone):
+
+| Device class | `DM_3D_SCALE` | `DM_GFX_SLOTS` | `DM_VK_PRESENT` | Expectation |
+| --- | --- | --- | --- | --- |
+| Snapdragon 8 Gen 2 / 3, 8 Elite (Adreno 740+) | `1.0` | `3` | `mailbox` | locked 60 |
+| Snapdragon 888 / 8 Gen 1, 7+ Gen 2 / 3 | `0.85`-`0.9` | `3` | `mailbox` | 60 with occasional dips |
+| Snapdragon 778G / 7 Gen 1 / 6 Gen 1 | `0.75` | `2` or `3` | `fifo` | 40-60 |
+| Older or low-end Adreno | `0.6`-`0.7` | `2` | `fifo`, `DM_PRESENT_MAX_HZ=30` | 30-45 |
+| Mali / Xclipse / PowerVR | `0.6`-`0.7` | `2` | `fifo` | untested; may not boot |
+
+If the frame rate is unstable but the GPU is not pegged, try `3` slots first; if the device
+gets hot or the picture stutters more, go back to `2` and lower `DM_3D_SCALE`.
+
+## 10. Do not commit
 
 `*.apk`, `*.xgs`, `*.rec`, `*.spv`, `*.so`, `*.log`, `*.PAK`, `romfs/`, `aoc/`, `patch-cn/`,
 `patch-res/`, `work/`, `dist/`, save files, keys. The `.gitignore` already covers these — do
