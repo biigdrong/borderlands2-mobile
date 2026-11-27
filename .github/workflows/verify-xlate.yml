@@ -1,0 +1,29 @@
+name: verify-xlate
+
+# Proves that the shader translator builds from a clean checkout, so a first-time builder
+# does not discover a broken `dmsh_xlate` only after collecting a 20 GB dump.
+# It does not translate anything (that needs game data) — it only compiles the C# project.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['main']
+  pull_request:
+
+jobs:
+  build-xlate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build the shader translator (net10.0)
+        run: dotnet build dm/gfx/tools/dmsh_xlate/dmsh_xlate.csproj -c Release --nologo
+
+      - name: Check the executable exists
+        run: test -x dm/gfx/tools/dmsh_xlate/bin/Release/net10.0/dmsh_xlate
