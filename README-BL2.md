@@ -30,6 +30,7 @@ data packs built from them.”
 - Windows PC (build host) + an Android 11+ arm64 phone
 - **Your own** Borderlands 2 (Switch) dump: `romfs/WillowGame/CookedSwitch`, `aoc/`, patches
 - Python 3, JDK 21, Android SDK (build-tools + platform-tools), Gradle 9.x
+- .NET 10 SDK — only if you build the shader translator (`dmsh_xlate`, `net10.0`)
 - (native build) Android NDK — the gradle config uses `ndkVersion 29.0.14206865`
 - A GPU that can run the title; this port was only validated on **Adreno**
 
@@ -76,19 +77,24 @@ DM_GYRO=1
 **First build: the generated headers (`DM_GEN_DIR`).** The Android host build needs a
 directory with four files derived from game data, so they are not committed:
 `dm_vault_tab.h`, `dm_hud_exp.h`, `dm_bright_levels.inc`, `dm_touch_native_art.c`.
-The rules live in `dm/host/Makefile`:
 
-```bash
-python dm/ios/tools/gen_vault_table.py <romfs> > <gen>/dm_vault_tab.h
-python dm/ios/tools/gen_hud_exp.py     <romfs> > <gen>/dm_hud_exp.h
-python tools/gen_bright_levels.py      <romfs> > <gen>/dm_bright_levels.inc
-python dm/ios/tools/native_art/generate.py <romfs> --output-dir <gen>
-```
+There are two ways to get them:
 
-Those generators were written for the D3 / DOS2 data layout. For BL2 the practical
-way is to take the four files from a build tree that already has them (an existing
-DOS2/D3 build under `work/build-android/gen-*`, or a generated directory from another
-machine), then point the build at that directory:
+1. **From a game-data build** (use this when you want the real vault / HUD tables). The
+   generators live in `dm/host/Makefile` and were written for the D3 / DOS2 data layout:
+   ```bash
+   python dm/ios/tools/gen_vault_table.py <romfs> > <gen>/dm_vault_tab.h
+   python dm/ios/tools/gen_hud_exp.py     <romfs> > <gen>/dm_hud_exp.h
+   python tools/gen_bright_levels.py      <romfs> > <gen>/dm_bright_levels.inc
+   python dm/ios/tools/native_art/generate.py <romfs> --output-dir <gen>
+   ```
+2. **CI stand-ins** — this is what the published APK is built with, and it needs no game
+   data. Copy the four heredocs verbatim from the `Generated host headers (DM_GEN_DIR)` step
+   in `.github/workflows/build-apk.yml` into your `<gen>` directory. They define empty tables
+   that load from `dm/derived.tsv` at run time when that file is present, and stay empty for
+   BL2 otherwise.
+
+Then point the build at the directory:
 
 ```powershell
 $env:DM_GEN_DIR = 'C:\path\to\gen'
@@ -112,6 +118,18 @@ Output: `work/BL2-port-debug.apk`, also copied to `dist/`.
 
 ## 5. Shader bundles (the part that is NOT in this repo)
 
+**First build the translator.** `XLATE` must point to the built executable of the C# project
+`dm/gfx/tools/dmsh_xlate` (`TargetFramework net10.0`; it references the bundled Ryujinx
+sources in `dm/third_party/ryujinx`):
+
+```powershell
+dotnet build dm/gfx/tools/dmsh_xlate/dmsh_xlate.csproj -c Release
+# -> dm/gfx/tools/dmsh_xlate/bin/Release/net10.0/dmsh_xlate(.exe)
+```
+
+`SPIRV_OPT` and `SPIRV_VAL` are the `spirv-opt` / `spirv-val` binaries from a SPIRV-Tools
+build (the Android NDK ships them under its shader tools directory).
+
 The game's shaders are compiled for NVN/Maxwell and must be translated offline into
 `<key>.xgs` bundles, one per shader, placed in `dm/shaders/`. None of that output is
 committed (`.xgs` is in `.gitignore`; it is derived from game data).
@@ -122,7 +140,7 @@ Typical loop:
    ```bash
    python tools/bl2_shader_jobs.py <romfs-root> work/bl2/shaders-jobs
    ```
-2. Translate to bundles (needs `XLATE`, `SPIRV_OPT`, `SPIRV_VAL` from the NDK shader tools):
+2. Translate to bundles (`XLATE` = the translator built above, plus `SPIRV_OPT` / `SPIRV_VAL`):
    ```bash
    XLATE=... J=8 python dm/gfx/tools/dmsh_vk_xc2.py work/bl2/shaders-jobs work/bl2/shaders-xgs
    ```
@@ -140,14 +158,36 @@ Notes learned on this title:
 - A few programs need a depth (clip-space z) correction; that is a per-title rule,
   not a generic translation step.
 
-## 6. Validation status / disclaimer
+## 6. Localization overlays (`patch-cn`, `patch-res`)
+
+The Chinese translation and the resource patch on the phone are **overlays**, not build
+output: they are the game's own data files with localized text, mounted over `romfs/` via
+`DM_ROMFS_OVERLAY`. This repository does not produce or distribute them, and they must not
+be committed — supply your own.
+
+| Directory | Contents |
+| --- | --- |
+| `patch-cn/` | `WillowGame/SwitchTOC.txt`, `WillowGame/CookedSwitch/{Coalesced_INT.bin, Startup.xxx, Startup_LOC_INT.xxx}`, `WillowGame/DLC/Switch/<pack>/Compat/{toc.txt, Localization/INT/*.int}` |
+| `patch-res/` | a single replacement `WillowGame/CookedSwitch/Coalesced_INT.bin` |
+
+Put them under `Download/Borderlands2Mobile/` and select one at a time:
+
+```
+DM_ROMFS_OVERLAY=/sdcard/Download/Borderlands2Mobile/patch-cn
+```
+
+Point it at `patch-res` instead if that is the patch you want. Only one overlay is active at
+a time, and removing the line restores the untouched game data.
+
+## 7. Validation status / disclaimer
 
 Validated only on: **realme RMX8899, Snapdragon SM8845, Adreno 829, Android 17**.
 Other GPUs, drivers, Android versions and resolutions are **not guaranteed**: shader
 modules may be rejected by a different driver, performance/thermal headroom differs,
 and touch layout / save paths may need adjustment. Treat this as a reference port.
 
-## 7. Do not commit
+## 8. Do not commit
 
-`*.apk`, `*.xgs`, `*.rec`, `*.spv`, `*.so`, `*.log`, `*.PAK`, `romfs/`, `work/`, `dist/`,
-save files, keys. The `.gitignore` already covers these — do not override it.
+`*.apk`, `*.xgs`, `*.rec`, `*.spv`, `*.so`, `*.log`, `*.PAK`, `romfs/`, `aoc/`, `patch-cn/`,
+`patch-res/`, `work/`, `dist/`, save files, keys. The `.gitignore` already covers these — do
+not override it.

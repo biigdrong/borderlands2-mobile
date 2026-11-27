@@ -31,6 +31,11 @@ dm/android/local.env
 # layers and the built APKs (dist/).
 /work/
 /dist/
+# The player's own game data and overlays — never commit these
+/romfs/
+/aoc/
+/patch-cn/
+/patch-res/
 __pycache__/
 *.pyc
 local.properties
